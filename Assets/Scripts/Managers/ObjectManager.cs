@@ -1,30 +1,42 @@
-// ObjectManager.cs
-using System.Collections.Generic;
+// Assets/Scripts/Managers/ObjectManager.cs
+
 using UnityEngine;
 
 public class ObjectManager : MonoBehaviour
 {
-    // プレハブへの参照
-    public GameObject markerPrefab;
+    [Header("Target Object")]
+    public GameObject targetObject;
 
-    // 生成されたオブジェクトのリスト
-    private List<GameObject> markers = new List<GameObject>();
-
-    // データ受信時に呼び出すメソッド
-    public void CreateMarker(Vector3 position)
+    /// <summary>
+    /// オブジェクトの位置を更新します。
+    /// </summary>
+    /// <param name="position">更新する位置。</param>
+    public void UpdateObjectPosition(Vector3 position)
     {
-        // プレハブからオブジェクトを生成
-        GameObject marker = Instantiate(markerPrefab, position, Quaternion.identity);
-        markers.Add(marker);
+        if (targetObject != null)
+        {
+            targetObject.transform.position = position;
+        }
+        else
+        {
+            Logger.LogWarning("Target Object が設定されていません。");
+        }
     }
 
-    // 既存のマーカーを全て削除するメソッド（必要に応じて）
-    public void ClearMarkers()
+    /// <summary>
+    /// オブジェクトの向きを更新します。
+    /// </summary>
+    /// <param name="heading">ヘディング（方位）を度単位で指定。</param>
+    public void UpdateObjectRotation(double heading)
     {
-        foreach (var marker in markers)
+        if (targetObject != null)
         {
-            Destroy(marker);
+            // ヘディングをY軸回転に変換
+            targetObject.transform.rotation = Quaternion.Euler(0, (float)heading, 0);
         }
-        markers.Clear();
+        else
+        {
+            Logger.LogWarning("Target Object が設定されていません。");
+        }
     }
 }

@@ -1,105 +1,245 @@
-// SerialManager.cs
+// Assets/Scripts/Managers/SerialManager.cs
+
+using UnityEngine;
 using System;
 using System.IO.Ports;
 using System.Threading;
-using UnityEngine;
+using System.Collections.Generic;
 
-public class SerialManager : IDisposable
+public class SerialManager : MonoBehaviour, IDisposable
 {
-    // serialPort を private に保ちつつ、必要な操作を提供する
-    private SerialPort serialPort;
-    private Thread readThread;
-    private bool isRunning;
-    private Action<string> onDataReceived;
+    [Header("Serial Port Settings")]
+    public string portName = "COM3"; // シリアルポート名
+    public int baudRate = 9600; // ボーレート
 
-    public SerialManager(string portName, int baudRate, Parity parity, int dataBits, StopBits stopBits, Action<string> dataReceivedCallback)
+    private SerialPort serialPort_;
+    private Thread readThread_;
+    private bool isRunning_ = false;
+
+    // データ受信イベントの定義
+    public delegate void DataReceivedHandler(string data);
+    public event DataReceivedHandler OnDataReceived;
+
+    // RTCMデータ受信イベントの定義
+    public delegate void RTCMDataReceivedHandler(byte[] data);
+    public event RTCMDataReceivedHandler OnRTCMDataReceived;
+
+    // スレッドセーフなキューの追加
+    private Queue<string> receivedDataQueue = new Queue<string>();
+    private Queue<byte[]> rtcmDataQueue = new Queue<byte[]>();
+    private object queueLock = new object();
+
+    public bool IsOpen => serialPort_ != null && serialPort_.IsOpen;
+
+    // シングルトンインスタンス
+    private static SerialManager _instance;
+    public static SerialManager Instance
     {
-        serialPort = new SerialPort(portName, baudRate, parity, dataBits, stopBits);
-        onDataReceived = dataReceivedCallback;
+        get
+        {
+            if (_instance == null)
+            {
+                // 新しいGameObjectを作成し、SerialManagerをアタッチ
+                GameObject obj = new GameObject("SerialManager");
+                _instance = obj.AddComponent<SerialManager>();
+                DontDestroyOnLoad(obj);
+            }
+            return _instance;
+        }
     }
 
-    public void Start()
+    void Awake()
+    {
+        if (_instance == null)
+        {
+            _instance = this;
+            DontDestroyOnLoad(this.gameObject);
+            OpenSerialPort();
+        }
+        else if (_instance != this)
+        {
+            Destroy(this.gameObject);
+        }
+    }
+
+    private void OpenSerialPort()
     {
         try
         {
-            serialPort.Open();
-            Logger.LogInfo($"シリアルポート {serialPort.PortName} に接続しました。");
+            serialPort_ = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One);
+            serialPort_.ReadTimeout = 1000; // タイムアウト時間の設定（ミリ秒）
+            serialPort_.Open();
+            isRunning_ = true;
+            readThread_ = new Thread(ReadSerialPort);
+            readThread_.Start();
+            Logger.LogInfo($"シリアルポート {portName} が開かれました。");
         }
         catch (Exception e)
         {
-            Logger.LogError($"シリアルポート {serialPort.PortName} のオープンに失敗しました: {e.Message}");
-            throw;
+            Logger.LogError($"シリアルポートのオープンに失敗しました: {e.Message}");
         }
-
-        isRunning = true;
-        readThread = new Thread(ReadLoop);
-        readThread.Start();
     }
 
-    private void ReadLoop()
+    private void ReadSerialPort()
     {
-        string buffer = string.Empty;
-        while (isRunning)
+        while (isRunning_ && serialPort_ != null && serialPort_.IsOpen)
         {
             try
             {
-                string data = serialPort.ReadExisting();
-                if (!string.IsNullOrEmpty(data))
+                // 非ブロッキングでデータを読み取る
+                int bytesToRead = serialPort_.BytesToRead;
+                if (bytesToRead > 0)
                 {
-                    buffer += data;
-                    while (buffer.Contains("\n"))
+                    byte[] buffer = new byte[bytesToRead];
+                    serialPort_.Read(buffer, 0, bytesToRead);
+
+                    // RTCMデータの判定
+                    if (IsRTCMData(buffer))
                     {
-                        int index = buffer.IndexOf('\n');
-                        string line = buffer.Substring(0, index).Trim();
-                        buffer = buffer.Substring(index + 1);
-                        if (line.StartsWith("$"))
+                        lock (queueLock)
                         {
-                            onDataReceived?.Invoke(line);
+                            rtcmDataQueue.Enqueue(buffer);
                         }
+                        // RTCMデータの詳細なログ出力
+                        string hexData = BitConverter.ToString(buffer);
+                        Logger.LogDebug($"RTCMデータ受信: {hexData}");
                     }
+                    else
+                    {
+                        string line = System.Text.Encoding.ASCII.GetString(buffer).Trim();
+                        lock (queueLock)
+                        {
+                            receivedDataQueue.Enqueue(line);
+                        }
+                        Logger.LogDebug($"NMEAデータ受信: {line}");
+                    }
+                }
+                else
+                {
+                    Thread.Sleep(10); // 少し待機してから再試行
                 }
             }
             catch (Exception e)
             {
-                Logger.LogError($"シリアル通信エラー: {e.Message}");
-                Stop();
+                Logger.LogError($"シリアル読み取りエラー: {e.Message}");
+                isRunning_ = false;
             }
-            Thread.Sleep(10);
         }
     }
 
-    // シリアルポートにデータを書き込むための public メソッドを追加
-    public void WriteData(byte[] data)
+    void Update()
     {
-        if (serialPort.IsOpen)
+        // メインスレッドでキューからデータを処理
+        lock (queueLock)
         {
-            serialPort.Write(data, 0, data.Length);
-            Logger.LogDebug($"Wrote {data.Length} bytes to serial port.");
+            while (receivedDataQueue.Count > 0)
+            {
+                string data = receivedDataQueue.Dequeue();
+                OnDataReceived?.Invoke(data);
+            }
+
+            while (rtcmDataQueue.Count > 0)
+            {
+                byte[] data = rtcmDataQueue.Dequeue();
+                OnRTCMDataReceived?.Invoke(data);
+            }
+        }
+    }
+
+    /// <summary>
+    /// RTCMデータかどうかを判定します。
+    /// RTCM3.0のスタートフレームは0xD3 0x00で始まる
+    /// </summary>
+    /// <param name="buffer">受信したバイトデータ。</param>
+    /// <returns>RTCMデータであればtrue、そうでなければfalse。</returns>
+    private bool IsRTCMData(byte[] buffer)
+    {
+        if (buffer.Length < 2)
+            return false;
+
+        // RTCM3.0のスタートフレームは0xD3 0x00で始まる
+        return buffer[0] == 0xD3 && buffer[1] == 0x00;
+    }
+
+    /// <summary>
+    /// 文字列データをシリアルポートに送信します。
+    /// </summary>
+    /// <param name="message">送信する文字列メッセージ。</param>
+    public void Write(string message)
+    {
+        if (serialPort_ != null && serialPort_.IsOpen)
+        {
+            try
+            {
+                serialPort_.WriteLine(message);
+                Logger.LogInfo($"シリアルポートに送信: {message}");
+            }
+            catch (Exception e)
+            {
+                Logger.LogError($"シリアル書き込みエラー: {e.Message}");
+            }
         }
         else
         {
-            Logger.LogError("シリアルポートが開かれていません。");
+            Logger.LogWarning("シリアルポートが開かれていません。");
         }
     }
 
-    public void Stop()
+    /// <summary>
+    /// バイトデータをシリアルポートに送信します。
+    /// </summary>
+    /// <param name="data">送信するバイト配列。</param>
+    public void WriteBytes(byte[] data)
     {
-        isRunning = false;
-        if (readThread != null && readThread.IsAlive)
+        if (serialPort_ != null && serialPort_.IsOpen)
         {
-            readThread.Join();
+            try
+            {
+                serialPort_.Write(data, 0, data.Length);
+                Logger.LogInfo($"シリアルポートにバイトデータを送信: {data.Length} bytes");
+            }
+            catch (Exception e)
+            {
+                Logger.LogError($"シリアル書き込みエラー: {e.Message}");
+            }
         }
-
-        if (serialPort.IsOpen)
+        else
         {
-            serialPort.Close();
-            Logger.LogInfo($"シリアルポート {serialPort.PortName} をクローズしました。");
+            Logger.LogWarning("シリアルポートが開かれていません。");
         }
     }
 
+    /// <summary>
+    /// シリアルポートを閉じ、リソースを解放します。
+    /// </summary>
     public void Dispose()
     {
-        Stop();
-        serialPort.Dispose();
+        CloseSerialPort();
+    }
+
+    private void CloseSerialPort()
+    {
+        try
+        {
+            isRunning_ = false;
+            if (readThread_ != null && readThread_.IsAlive)
+            {
+                readThread_.Join();
+            }
+            if (serialPort_ != null && serialPort_.IsOpen)
+            {
+                serialPort_.Close();
+                Logger.LogInfo($"シリアルポート {portName} が閉じられました。");
+            }
+        }
+        catch (Exception e)
+        {
+            Logger.LogError($"シリアルポートのクローズに失敗しました: {e.Message}");
+        }
+    }
+
+    void OnDestroy()
+    {
+        Dispose();
     }
 }
