@@ -1,12 +1,16 @@
 // Assets/Scripts/Managers/MainManager.cs
 
 using UnityEngine;
-using System; // 必要な名前空間のインポート
+using System;
+using System.Collections.Generic;
 
 public class MainManager : MonoBehaviour
 {
     [Header("Serial Manager")]
-    public SerialManager serialManager; // シリアルマネージャーの参照
+    [SerializeField]
+    private MonoBehaviour serialManagerBehaviour; // シリアルマネージャーの参照（MonoBehaviour型）
+
+    private ISerialManager serialManager; // インターフェース型の参照
 
     [Header("NTRIP Settings")]
     public string ntripServer = "ntrip.ales-corp.co.jp";
@@ -15,20 +19,43 @@ public class MainManager : MonoBehaviour
     public string username = "psu7f04d";
     public string password = "67q9bj";
 
-    [Header("Object Manager")]
-    public ObjectManager objectManager;
+    [Header("Routes Data")]
+    public List<RouteData> routes = new List<RouteData>(); // 複数ルートを管理
+
+    public RouteManager routeManager; // RouteManagerへの参照
+
+    public float maxVisibleDistance = 50.0f; // 最大可視距離（メートル）
+
+    // ユーザーの現在位置とヘディング
+    private double currentLatitude;
+    private double currentLongitude;
+    private double currentAltitude;
+    private double currentHeading;
+
+    // 原点設定
+    private bool originSet = false;
+    private double originLatitude;
+    private double originLongitude;
+    private double originAltitude;
 
     private NtripClient ntripClient;
 
     void Start()
     {
-        if (SerialManager.Instance == null)
+        if (serialManagerBehaviour != null)
         {
-            Logger.LogError("SerialManager が存在しません。");
+            serialManager = serialManagerBehaviour as ISerialManager;
+            if (serialManager == null)
+            {
+                Logger.LogError("Assigned SerialManager does not implement ISerialManager.");
+                return;
+            }
+        }
+        else
+        {
+            Logger.LogError("SerialManager が設定されていません。");
             return;
         }
-
-        serialManager = SerialManager.Instance;
 
         // シリアルデータ受信イベントの登録
         serialManager.OnDataReceived += OnSerialDataReceived;
@@ -36,19 +63,49 @@ public class MainManager : MonoBehaviour
         // RTCMデータ受信イベントの登録
         serialManager.OnRTCMDataReceived += OnRTCMDataReceived;
 
-        // NTRIPクライアントの初期化と開始
-        ntripClient = new NtripClient(ntripServer, ntripPort, mountPoint, username, password, serialManager);
-        ntripClient.OnRTCMDataReceived += OnRTCMDataReceivedFromNTRIP;
-        ntripClient.Start();
+        // NTRIPクライアントの初期化と開始（RTCMデータの受信が未完成のため、一旦無視）
+        // ntripClient = new NtripClient(ntripServer, ntripPort, mountPoint, username, password, serialManager);
+        // ntripClient.OnRTCMDataReceived += OnRTCMDataReceivedFromNTRIP;
+        // ntripClient.Start();
 
         Logger.LogInfo("MainManager initialized successfully.");
 
         // ログファイルのパスを出力（テスト用）
         Logger.LogFilePath();
 
-        // テストログの追加
-        Logger.LogInfo("これはテストログです。log.txt に出力されるはずです。");
-        Logger.LogDebug("これはデバッグテストログです。");
+        // RouteManager の参照を取得
+        if (routeManager == null)
+        {
+            routeManager = FindObjectOfType<RouteManager>();
+            if (routeManager == null)
+            {
+                Logger.LogError("MainManager: RouteManager がシーン内に存在しません。");
+                return;
+            }
+
+            // RouteManager にルートデータを設定
+            routeManager.routes = routes;
+            // originCoordinates は RouteManager の Inspector から設定するか、以下のように固定値を設定
+            // routeManager.originCoordinates = new Vector2((float)originLatitude, (float)originLongitude);
+            // objectManager は RouteManager が自動的に取得するため、ここでは設定不要
+        }
+
+        // カメラの背景を透明に設定（透過型ARグラスの場合）
+        Camera.main.clearFlags = CameraClearFlags.SolidColor;
+        Camera.main.backgroundColor = new Color(0, 0, 0, 0);
+    }
+
+    void Update()
+    {
+        // シリアル通信を通じて受信したGPSデータを処理
+
+        // 現在の位置とヘディングが更新された場合、RouteManagerに渡す
+        if (routeManager != null)
+        {
+            Vector3 userPosition = ConvertGeographicToUnity(currentLatitude, currentLongitude, currentAltitude);
+            float userHeading = (float)currentHeading;
+            routeManager.UpdateNavigation(userPosition, userHeading);
+        }
     }
 
     // シリアルポートからのNMEAデータ受信時の処理
@@ -60,26 +117,19 @@ public class MainManager : MonoBehaviour
         string[] sentences = data.Split(new string[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
         foreach (string sentence in sentences)
         {
+            Logger.LogDebug($"Parsing NMEA Sentence: {sentence}"); // 追加
+
             // NMEAセンテンスごとに解析
             NmeaParser.NmeaData parsedData = NmeaParser.Parse(sentence);
             if (parsedData != null)
             {
                 Logger.LogInfo($"Parsed NMEA Data - Lat: {parsedData.Latitude}, Lon: {parsedData.Longitude}, Alt: {parsedData.Altitude}, Heading: {parsedData.Heading}");
 
-                // オブジェクトの位置を更新
-                if (objectManager != null)
-                {
-                    // 緯度経度をUnityの座標系に適切に変換する
-                    Vector3 position = ConvertGeographicToUnity(parsedData.Latitude, parsedData.Longitude, parsedData.Altitude);
-                    objectManager.UpdateObjectPosition(position);
-
-                    // オブジェクトの向きをヘディングに基づいて更新
-                    objectManager.UpdateObjectRotation(parsedData.Heading);
-                }
-                else
-                {
-                    Logger.LogWarning("ObjectManager がアタッチされていません。");
-                }
+                // 現在の位置とヘディングを更新
+                currentLatitude = parsedData.Latitude;
+                currentLongitude = parsedData.Longitude;
+                currentAltitude = parsedData.Altitude;
+                currentHeading = parsedData.Heading;
             }
             else
             {
@@ -88,38 +138,17 @@ public class MainManager : MonoBehaviour
         }
     }
 
-    // シリアルポートからのRTCMデータ受信時の処理
+    // シリアルポートからのRTCMデータ受信時の処理（未使用の場合はコメントアウト）
     private void OnRTCMDataReceived(byte[] rtcmData)
     {
-        Logger.LogDebug($"Received RTCM data: {rtcmData.Length} bytes");
-
-        if (rtcmData.Length > 0)
-        {
-            // データの一部をログに出力（バイナリデータなので、バイト値を16進数で表示）
-            string hexData = BitConverter.ToString(rtcmData);
-            Logger.LogDebug($"RTCM Data Hex: {hexData}");
-        }
-
-        // RTCMデータをNtripClientに送信して補正を適用
-        if (ntripClient != null)
-        {
-            ntripClient.SendRTCMData(rtcmData);
-        }
+        // Logger.LogDebug($"Received RTCM data: {rtcmData.Length} bytes");
+        // 必要に応じて処理を実装
     }
 
-    // NTRIPクライアントからのRTCMデータ受信時の処理
+    // NTRIPクライアントからのRTCMデータ受信時の処理（未使用の場合はコメントアウト）
     private void OnRTCMDataReceivedFromNTRIP(byte[] rtcmData)
     {
-        // RTCMデータをシリアルポートに送信
-        if (serialManager.IsOpen)
-        {
-            serialManager.WriteBytes(rtcmData);
-            Logger.LogDebug($"Sent RTCM data to serial port: {rtcmData.Length} bytes");
-        }
-        else
-        {
-            Logger.LogWarning("シリアルポートが開かれていません。RTCMデータを送信できません。");
-        }
+        // 必要に応じて処理を実装
     }
 
     void OnDestroy()
@@ -139,22 +168,30 @@ public class MainManager : MonoBehaviour
     /// <summary>
     /// 地理座標（緯度、経度、高度）をUnityの座標系に変換します。
     /// </summary>
-    /// <param name="latitude">緯度（度）。</param>
-    /// <param name="longitude">経度（度）。</param>
-    /// <param name="altitude">高度（メートル）。</param>
-    /// <returns>Unityの座標系に変換されたVector3。</returns>
     private Vector3 ConvertGeographicToUnity(double latitude, double longitude, double altitude)
     {
-        // ここでは、緯度をZ軸、経度をX軸、高度をY軸にマッピングします。
-        // 実際の用途に応じてスケールや変換を調整してください。
-        // 例えば、1度を1000ユニットとするなど
+        // 原点（基準点）を設定
+        if (!originSet)
+        {
+            originLatitude = latitude;
+            originLongitude = longitude;
+            originAltitude = altitude;
+            originSet = true;
+        }
 
-        float scale = 1000f; // スケール調整（例）
+        // 地球半径（メートル）
+        const double EarthRadius = 6378137.0;
 
-        float x = (float)(longitude * scale);
-        float y = (float)altitude;
-        float z = (float)(latitude * scale);
+        // 緯度・経度の差分をラジアンに変換
+        double latDiff = ((float)(latitude - originLatitude)) * Mathf.Deg2Rad;
+        double lonDiff = ((float)(longitude - originLongitude)) * Mathf.Deg2Rad;
 
-        return new Vector3(x, y, z);
+        // 緯度をラジアンに変換してコサインを計算
+        double x = EarthRadius * lonDiff * Math.Cos(((float)latitude) * Mathf.Deg2Rad);
+        double z = EarthRadius * latDiff;
+
+        float y = (float)(altitude - originAltitude);
+
+        return new Vector3((float)x, y, (float)z);
     }
 }

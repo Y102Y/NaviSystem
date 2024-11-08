@@ -1,12 +1,10 @@
-// Assets/Scripts/Managers/SerialManager.cs
-
 using UnityEngine;
 using System;
 using System.IO.Ports;
 using System.Threading;
 using System.Collections.Generic;
 
-public class SerialManager : MonoBehaviour, IDisposable
+public class SerialManager : MonoBehaviour, ISerialManager // ISerialManagerを実装
 {
     [Header("Serial Port Settings")]
     public string portName = "COM3"; // シリアルポート名
@@ -17,12 +15,10 @@ public class SerialManager : MonoBehaviour, IDisposable
     private bool isRunning_ = false;
 
     // データ受信イベントの定義
-    public delegate void DataReceivedHandler(string data);
-    public event DataReceivedHandler OnDataReceived;
-
+    public event Action<string> OnDataReceived;
+    
     // RTCMデータ受信イベントの定義
-    public delegate void RTCMDataReceivedHandler(byte[] data);
-    public event RTCMDataReceivedHandler OnRTCMDataReceived;
+    public event Action<byte[]> OnRTCMDataReceived;
 
     // スレッドセーフなキューの追加
     private Queue<string> receivedDataQueue = new Queue<string>();
@@ -87,37 +83,19 @@ public class SerialManager : MonoBehaviour, IDisposable
             try
             {
                 // 非ブロッキングでデータを読み取る
-                int bytesToRead = serialPort_.BytesToRead;
-                if (bytesToRead > 0)
+                string line = serialPort_.ReadLine();
+                if (!string.IsNullOrEmpty(line))
                 {
-                    byte[] buffer = new byte[bytesToRead];
-                    serialPort_.Read(buffer, 0, bytesToRead);
-
-                    // RTCMデータの判定
-                    if (IsRTCMData(buffer))
+                    lock (queueLock)
                     {
-                        lock (queueLock)
-                        {
-                            rtcmDataQueue.Enqueue(buffer);
-                        }
-                        // RTCMデータの詳細なログ出力
-                        string hexData = BitConverter.ToString(buffer);
-                        Logger.LogDebug($"RTCMデータ受信: {hexData}");
+                        receivedDataQueue.Enqueue(line);
                     }
-                    else
-                    {
-                        string line = System.Text.Encoding.ASCII.GetString(buffer).Trim();
-                        lock (queueLock)
-                        {
-                            receivedDataQueue.Enqueue(line);
-                        }
-                        Logger.LogDebug($"NMEAデータ受信: {line}");
-                    }
+                    Logger.LogDebug($"NMEAデータ受信: {line}");
                 }
-                else
-                {
-                    Thread.Sleep(10); // 少し待機してから再試行
-                }
+            }
+            catch (TimeoutException)
+            {
+                // タイムアウトは無視
             }
             catch (Exception e)
             {
@@ -147,24 +125,8 @@ public class SerialManager : MonoBehaviour, IDisposable
     }
 
     /// <summary>
-    /// RTCMデータかどうかを判定します。
-    /// RTCM3.0のスタートフレームは0xD3 0x00で始まる
-    /// </summary>
-    /// <param name="buffer">受信したバイトデータ。</param>
-    /// <returns>RTCMデータであればtrue、そうでなければfalse。</returns>
-    private bool IsRTCMData(byte[] buffer)
-    {
-        if (buffer.Length < 2)
-            return false;
-
-        // RTCM3.0のスタートフレームは0xD3 0x00で始まる
-        return buffer[0] == 0xD3 && buffer[1] == 0x00;
-    }
-
-    /// <summary>
     /// 文字列データをシリアルポートに送信します。
     /// </summary>
-    /// <param name="message">送信する文字列メッセージ。</param>
     public void Write(string message)
     {
         if (serialPort_ != null && serialPort_.IsOpen)
@@ -188,7 +150,6 @@ public class SerialManager : MonoBehaviour, IDisposable
     /// <summary>
     /// バイトデータをシリアルポートに送信します。
     /// </summary>
-    /// <param name="data">送信するバイト配列。</param>
     public void WriteBytes(byte[] data)
     {
         if (serialPort_ != null && serialPort_.IsOpen)

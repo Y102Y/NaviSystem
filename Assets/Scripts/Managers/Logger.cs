@@ -1,14 +1,12 @@
-// Assets/Scripts/Managers/Logger.cs
-
 using UnityEngine;
 using System.IO;
-using System; // Exception クラスなどを使用する場合に必要
+using System;
 
 public static class Logger
 {
     private static string logDirectory = Path.Combine(Application.persistentDataPath, "Logs");
     private static string logFilePath = Path.Combine(logDirectory, "log.txt");
-    private static readonly object fileLock = new object(); // ロックオブジェクトの追加
+    private static readonly object fileLock = new object(); // ロックオブジェクト
     private static long maxFileSize = 5 * 1024 * 1024; // 5MB
 
     public enum LogType
@@ -102,7 +100,7 @@ public static class Logger
 
     private static void WriteToFile(string message)
     {
-        lock (fileLock) // 排他制御の適用
+        lock (fileLock) // 排他制御
         {
             try
             {
