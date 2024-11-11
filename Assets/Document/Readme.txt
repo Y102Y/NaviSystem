@@ -28,6 +28,8 @@ DebugRouteManager.cs
 →「OriginCoordinates」に基準点の座標を入力
 →「ObjectManager」に「DebugObjectManager」オブジェクトをアタッチ
 →「Prefabs」に「AllowCheckpoint」プレハブをアタッチ
+→「Prefabs」に「Gate」プレハブをアタッチ
+→「NavigationMode」で使用するナビゲーションタイプを選択「Allow，Gate」
 
 1.5．DebugObjectManagerオブジェクト
 DebugObjectManager.cs

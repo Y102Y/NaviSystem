@@ -5,66 +5,91 @@ using System.Collections.Generic;
 
 public class DebugObjectManager : MonoBehaviour
 {
-    [Header("Target Object")]
-    [Tooltip("ターゲットオブジェクト（プレイヤーキャラクターなど）")]
-    public GameObject targetObject;
-
-    // チェックポイントとゲートのリスト
+    // 管理するオブジェクトのリスト
     private List<GameObject> checkpoints = new List<GameObject>();
     private List<GameObject> gates = new List<GameObject>();
-
-    void Start()
-    {
-        if (targetObject == null)
-        {
-            Logger.LogError("DebugObjectManager: Target Object が設定されていません。");
-            return;
-        }
-
-        Logger.LogInfo("DebugObjectManager initialized successfully.");
-    }
 
     /// <summary>
     /// チェックポイントを追加するメソッド
     /// </summary>
-    /// <param name="checkpoint">チェックポイントオブジェクト</param>
+    /// <param name="checkpoint">追加するチェックポイントのGameObject</param>
     public void AddCheckpoint(GameObject checkpoint)
     {
         if (checkpoint != null)
         {
             checkpoints.Add(checkpoint);
-            Logger.LogInfo($"DebugObjectManager: チェックポイント '{checkpoint.name}' を追加しました。");
+            DebugLogger.Instance.LogInfo($"DebugObjectManager: チェックポイント {checkpoint.name} を追加しました。");
+        }
+        else
+        {
+            DebugLogger.Instance.LogError("DebugObjectManager: チェックポイントがnullです。");
         }
     }
 
     /// <summary>
     /// ゲートを追加するメソッド
     /// </summary>
-    /// <param name="gate">ゲートオブジェクト</param>
+    /// <param name="gate">追加するゲートのGameObject</param>
     public void AddGate(GameObject gate)
     {
         if (gate != null)
         {
             gates.Add(gate);
-            Logger.LogInfo($"DebugObjectManager: ゲート '{gate.name}' を追加しました。");
+            DebugLogger.Instance.LogInfo($"DebugObjectManager: ゲート {gate.name} を追加しました。");
+        }
+        else
+        {
+            DebugLogger.Instance.LogError("DebugObjectManager: ゲートがnullです。");
         }
     }
 
     /// <summary>
-    /// チェックポイントのリストを取得するメソッド
+    /// すべてのチェックポイントを削除するメソッド
     /// </summary>
-    /// <returns>チェックポイントのリスト</returns>
-    public List<GameObject> GetCheckpoints()
+    public void RemoveAllCheckpoints()
     {
-        return checkpoints;
+        foreach (GameObject checkpoint in checkpoints)
+        {
+            if (checkpoint != null)
+            {
+                Destroy(checkpoint);
+            }
+        }
+        checkpoints.Clear();
+        DebugLogger.Instance.LogInfo("DebugObjectManager: すべてのチェックポイントを削除しました。");
     }
 
     /// <summary>
-    /// ゲートのリストを取得するメソッド
+    /// すべてのゲートを削除するメソッド
     /// </summary>
-    /// <returns>ゲートのリスト</returns>
-    public List<GameObject> GetGates()
+    public void RemoveAllGates()
     {
-        return gates;
+        foreach (GameObject gate in gates)
+        {
+            if (gate != null)
+            {
+                Destroy(gate);
+            }
+        }
+        gates.Clear();
+        DebugLogger.Instance.LogInfo("DebugObjectManager: すべてのゲートを削除しました。");
+    }
+
+    /// <summary>
+    /// 現在のチェックポイント数を取得するメソッド
+    /// </summary>
+    /// <returns>チェックポイントの数</returns>
+    public int GetCheckpointCount()
+    {
+        return checkpoints.Count;
+    }
+
+    /// <summary>
+    /// 現在のゲート数を取得するメソッド
+    /// </summary>
+    /// <returns>ゲートの数</returns>
+    public int GetGateCount()
+    {
+        return gates.Count;
     }
 }

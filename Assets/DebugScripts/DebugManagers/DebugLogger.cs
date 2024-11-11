@@ -1,41 +1,50 @@
 // Assets/DebugScripts/DebugManagers/DebugLogger.cs
 
 using UnityEngine;
-using System.IO;
 
 public class DebugLogger : MonoBehaviour
 {
-    private string logFilePath;
+    // シングルトンインスタンス
+    public static DebugLogger Instance { get; private set; }
 
     void Awake()
     {
-        // ログファイルのパスを設定
-        logFilePath = Path.Combine(Application.persistentDataPath, "debug_log.txt");
-        Logger.LogInfo("DebugLogger: ログファイルのパスを設定しました。");
+        // シングルトンの設定
+        if (Instance == null)
+        {
+            Instance = this;
+            DontDestroyOnLoad(gameObject); // シーン遷移時に破棄されないようにする
+        }
+        else
+        {
+            Destroy(gameObject); // 既に存在する場合は新しいインスタンスを破棄
+        }
     }
 
     /// <summary>
-    /// ログメッセージをファイルに書き込むメソッド
+    /// エラーログを出力するメソッド
     /// </summary>
     /// <param name="message">ログメッセージ</param>
-    public void WriteLog(string message)
+    public void LogError(string message)
     {
-        try
-        {
-            File.AppendAllText(logFilePath, $"{System.DateTime.Now}: {message}\n");
-        }
-        catch (System.Exception ex)
-        {
-            Debug.LogError($"DebugLogger: ログの書き込みに失敗しました。 {ex.Message}");
-        }
+        Debug.LogError(message);
     }
 
     /// <summary>
-    /// ログファイルのパスを取得するメソッド
+    /// 情報ログを出力するメソッド
     /// </summary>
-    /// <returns>ログファイルのパス</returns>
-    public string GetLogFilePath()
+    /// <param name="message">ログメッセージ</param>
+    public void LogInfo(string message)
     {
-        return logFilePath;
+        Debug.Log(message);
+    }
+
+    /// <summary>
+    /// 警告ログを出力するメソッド
+    /// </summary>
+    /// <param name="message">ログメッセージ</param>
+    public void LogWarning(string message)
+    {
+        Debug.LogWarning(message);
     }
 }

@@ -1,83 +1,73 @@
 // Assets/DebugScripts/DebugManagers/DebugMainManager.cs
 
 using UnityEngine;
-using System.Collections.Generic;
 
 public class DebugMainManager : MonoBehaviour
 {
-    [Header("Player Controller")]
-    [Tooltip("プレイヤーオブジェクトの PlayerController スクリプトへの参照")]
-    public PlayerController playerController;
-
-    [Header("Routes Data")]
-    public List<RouteData> routes = new List<RouteData>(); // 複数ルートを管理
-
-    public DebugRouteManager routeManager; // DebugRouteManagerへの参照
-
-    public float maxVisibleDistance = 50.0f; // 最大可視距離（メートル）
-
-    // ユーザーの現在位置とヘディング
-    private Vector3 currentPosition;
-    private float currentHeading;
+    // 必要なフィールドやプロパティをここに追加
 
     void Start()
     {
-        // PlayerController の設定確認
-        if (playerController == null)
-        {
-            Logger.LogError("DebugMainManager: PlayerController が設定されていません。");
-            return;
-        }
+        // 初期化の開始をログに記録
+        DebugLogger.Instance.LogInfo("DebugMainManager: デバッグシーンが開始されました。");
 
-        // DebugRouteManager の設定確認
-        if (routeManager == null)
-        {
-            routeManager = FindObjectOfType<DebugRouteManager>();
-            if (routeManager == null)
-            {
-                Logger.LogError("DebugMainManager: DebugRouteManager がシーン内に存在しません。");
-                return;
-            }
-
-            // DebugRouteManager にルートデータを設定
-            routeManager.routes = routes;
-
-            // DebugObjectManager の設定確認
-            if (routeManager.objectManager == null)
-            {
-                DebugObjectManager objectManager = FindObjectOfType<DebugObjectManager>();
-                if (objectManager != null)
-                {
-                    routeManager.objectManager = objectManager;
-                }
-                else
-                {
-                    Logger.LogError("DebugMainManager: DebugObjectManager がシーン内に存在しません。");
-                }
-            }
-        }
-
-        Logger.LogInfo("DebugMainManager initialized successfully.");
-
-        // ログファイルのパスを出力（テスト用）
-        Logger.LogFilePath();
+        // 必要な初期化処理をここに追加
+        InitializeDebugComponents();
     }
 
     void Update()
     {
-        // プレイヤーの現在位置とヘディングを取得
-        currentPosition = playerController.transform.position;
-        currentHeading = playerController.transform.eulerAngles.y; // Y軸の回転をヘディングとする
+        // デバッグ用の更新処理をここに追加
+        HandleDebugInput();
+    }
 
-        // DebugRouteManager に渡す
-        if (routeManager != null)
+    /// <summary>
+    /// デバッグコンポーネントの初期化メソッド
+    /// </summary>
+    private void InitializeDebugComponents()
+    {
+        // 初期化処理の例
+        bool initializationSuccess = true; // 実際の初期化ロジックに置き換えてください
+
+        if (!initializationSuccess)
         {
-            routeManager.UpdateNavigation(currentPosition, currentHeading);
+            DebugLogger.Instance.LogError("DebugMainManager: 初期化に失敗しました。");
+        }
+        else
+        {
+            DebugLogger.Instance.LogInfo("DebugMainManager: 初期化が成功しました。");
         }
     }
 
-    void OnDestroy()
+    /// <summary>
+    /// デバッグ入力の処理メソッド
+    /// </summary>
+    private void HandleDebugInput()
     {
-        // クリーンアップが必要な場合はここに記述
+        // 例: 特定のキー入力でデバッグ情報を表示
+        if (Input.GetKeyDown(KeyCode.D))
+        {
+            DebugLogger.Instance.LogInfo("DebugMainManager: 'D'キーが押されました。デバッグ情報を表示します。");
+            DisplayDebugInfo();
+        }
+    }
+
+    /// <summary>
+    /// デバッグ情報の表示メソッド
+    /// </summary>
+    private void DisplayDebugInfo()
+    {
+        // デバッグ情報の例
+        DebugLogger.Instance.LogInfo("DebugMainManager: 現在のチェックポイント数は " + GetCheckpointCount() + " です。");
+    }
+
+    /// <summary>
+    /// チェックポイントの数を取得するメソッド
+    /// </summary>
+    /// <returns>チェックポイントの総数</returns>
+    private int GetCheckpointCount()
+    {
+        // 実際のチェックポイント管理ロジックに置き換えてください
+        return 10;
     }
 }
