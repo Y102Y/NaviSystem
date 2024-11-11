@@ -38,7 +38,9 @@ public class DebugRouteManager : MonoBehaviour
     [Tooltip("ゲートのY軸オフセット（メートル）")]
     public float gateYOffset = 2f;
     [Tooltip("ゲートを配置する前後の距離（メートル）")]
-    public float gateDistance = 3f; // 1メートルから3メートルに変更
+    public float gateDistance = 3f; // 前後3ｍ
+    [Tooltip("ゲートを配置する間隔（メートル）")]
+    public float gateInterval = 5f; // 間隔5ｍ
 
     // ナビゲーション変数
     private int currentCheckpointIndex = 0;
@@ -95,12 +97,6 @@ public class DebugRouteManager : MonoBehaviour
         {
             InstantiateRoute(route);
         }
-
-        // ルート全体の後方ゲートを配置
-        foreach (RouteData route in routes)
-        {
-            PlaceAfterGates(route);
-        }
     }
 
     /// <summary>
@@ -153,153 +149,123 @@ public class DebugRouteManager : MonoBehaviour
             }
 
             checkpointPositions.Add(unityPosition);
-
-            // 各チェックポイントの前方にゲートを配置
-            if (navigationMode == NavigationMode.Gate || navigationMode == NavigationMode.Both)
-            {
-                PlaceGatesAroundCheckpoint(route, i);
-            }
         }
 
-        // 間隔ゲートの配置
+        // ゲートの配置（各セグメントごと）
         if (navigationMode == NavigationMode.Gate || navigationMode == NavigationMode.Both)
         {
-            PlaceGatesAtIntervals(route);
+            PlaceGatesForRoute(route);
         }
     }
 
     /// <summary>
-    /// チェックポイントの前方にゲートを配置するメソッド
+    /// ルート全体に対してゲートを配置するメソッド
     /// </summary>
     /// <param name="route">RouteDataアセット</param>
-    /// <param name="checkpointIndex">現在のチェックポイントのインデックス</param>
-    private void PlaceGatesAroundCheckpoint(RouteData route, int checkpointIndex)
+    private void PlaceGatesForRoute(RouteData route)
     {
-        Vector3 checkpointPosition = checkpointPositions[checkpointIndex];
-
-        // 前のチェックポイントが存在するか確認
-        bool hasPrevious = checkpointIndex > 0;
-
-        // ゲートのYオフセット
-        float currentGateYOffset = gateYOffset;
-
-        // 前方ゲートの配置
-        if (hasPrevious)
+        for (int i = 0; i < route.coordinates.Count - 1; i++)
         {
-            Vector3 previousPosition = checkpointPositions[checkpointIndex - 1];
-            Vector3 directionToCheckpoint = (checkpointPosition - previousPosition).normalized;
-            Vector3 gateBeforePosition = checkpointPosition - directionToCheckpoint * gateDistance; // 3メートル前
-            gateBeforePosition.y += currentGateYOffset; // Y座標を調整
+            Vector3 startPos = checkpointPositions[i];
+            Vector3 endPos = checkpointPositions[i + 1];
+            Vector3 direction = (endPos - startPos).normalized;
+            float segmentLength = Vector3.Distance(startPos, endPos);
 
+            // 前方ゲートの配置
+            Vector3 gateBeforePosition = startPos + direction * gateDistance;
+            gateBeforePosition.y += gateYOffset;
             GameObject gateBefore = Instantiate(gatePrefab, gateBeforePosition, Quaternion.identity, transform);
-            gateBefore.name = $"{route.routeName}_Gate_Before_{checkpointIndex + 1}";
+            gateBefore.name = $"{route.routeName}_Gate_Before_{i + 1}";
 
             // ゲートの向きをチェックポイントに合わせる（y軸のみ回転）
-            Vector3 direction = checkpointPosition - gateBeforePosition;
-            direction.y = 0; // y軸の成分を除去して水平に向ける
-            if (direction != Vector3.zero)
+            Vector3 directionToCheckpoint = (endPos - gateBeforePosition).normalized;
+            directionToCheckpoint.y = 0; // y軸の成分を除去して水平に向ける
+            if (directionToCheckpoint != Vector3.zero)
             {
-                gateBefore.transform.rotation = Quaternion.LookRotation(direction) * Quaternion.Euler(0f, 90f, 0f); // Y軸周りに90度回転
+                gateBefore.transform.rotation = Quaternion.LookRotation(directionToCheckpoint) * Quaternion.Euler(0f, 90f, 0f);
             }
 
             objectManager.AddGate(gateBefore);
             DebugLogger.Instance?.LogInfo($"Instantiated {gateBefore.name} at {gateBeforePosition}");
-        }
-    }
 
-    /// <summary>
-    /// ルート全体の後方ゲートを配置するメソッド
-    /// </summary>
-    /// <param name="route">RouteDataアセット</param>
-    private void PlaceAfterGates(RouteData route)
-    {
-        for (int i = 0; i < checkpointPositions.Count; i++)
-        {
-            Vector3 checkpointPosition = checkpointPositions[i];
+            // 後方ゲートの配置
+            Vector3 gateAfterPosition = endPos - direction * gateDistance;
+            gateAfterPosition.y += gateYOffset;
+            GameObject gateAfter = Instantiate(gatePrefab, gateAfterPosition, Quaternion.identity, transform);
+            gateAfter.name = $"{route.routeName}_Gate_After_{i + 1}";
 
-            // 次のチェックポイントが存在するか確認
-            bool hasNext = i < route.coordinates.Count - 1;
-
-            if (hasNext)
+            // ゲートの向きをチェックポイントに合わせる（y軸のみ回転）
+            Vector3 directionFromCheckpoint = (gateAfterPosition - startPos).normalized;
+            directionFromCheckpoint.y = 0; // y軸の成分を除去して水平に向ける
+            if (directionFromCheckpoint != Vector3.zero)
             {
-                Vector3 nextPosition = checkpointPositions[i + 1];
-                Vector3 directionFromCheckpoint = (nextPosition - checkpointPosition).normalized;
-                Vector3 gateAfterPosition = checkpointPosition + directionFromCheckpoint * gateDistance; // 3メートル後
-                gateAfterPosition.y += gateYOffset; // Y座標を調整
-
-                GameObject gateAfter = Instantiate(gatePrefab, gateAfterPosition, Quaternion.identity, transform);
-                gateAfter.name = $"{route.routeName}_Gate_After_{i + 1}";
-
-                // ゲートの向きをチェックポイントに合わせる（y軸のみ回転）
-                Vector3 direction = checkpointPosition - gateAfterPosition;
-                direction.y = 0; // y軸の成分を除去して水平に向ける
-                if (direction != Vector3.zero)
-                {
-                    gateAfter.transform.rotation = Quaternion.LookRotation(direction) * Quaternion.Euler(0f, 90f, 0f); // Y軸周りに90度回転
-                }
-
-                objectManager.AddGate(gateAfter);
-                DebugLogger.Instance?.LogInfo($"Instantiated {gateAfter.name} at {gateAfterPosition}");
+                gateAfter.transform.rotation = Quaternion.LookRotation(directionFromCheckpoint) * Quaternion.Euler(0f, 90f, 0f);
             }
+
+            objectManager.AddGate(gateAfter);
+            DebugLogger.Instance?.LogInfo($"Instantiated {gateAfter.name} at {gateAfterPosition}");
+
+            // 間隔ゲートの配置
+            PlaceGatesAtIntervals(route, i, startPos, endPos, direction, segmentLength);
         }
     }
 
     /// <summary>
-    /// ゲートを一定間隔で配置するメソッド
+    /// セグメントごとに間隔ゲートを配置するメソッド
     /// </summary>
     /// <param name="route">RouteDataアセット</param>
-    private void PlaceGatesAtIntervals(RouteData route)
+    /// <param name="segmentIndex">セグメントのインデックス</param>
+    /// <param name="startPos">セグメントの開始位置</param>
+    /// <param name="endPos">セグメントの終了位置</param>
+    /// <param name="direction">セグメントの方向ベクトル</param>
+    /// <param name="segmentLength">セグメントの長さ</param>
+    private void PlaceGatesAtIntervals(RouteData route, int segmentIndex, Vector3 startPos, Vector3 endPos, Vector3 direction, float segmentLength)
     {
-        if (route.gateInterval <= 0f)
+        // ゲート配置可能な距離を計算（前後ゲートを除く）
+        float availableDistance = segmentLength - 2 * gateDistance;
+        if (availableDistance < gateInterval)
         {
-            DebugLogger.Instance?.LogWarning($"Route '{route.routeName}': GateInterval が無効です。");
+            // 間隔ゲートを配置する余裕がない場合はスキップ
             return;
         }
 
-        float accumulatedDistance = 0f;
-        int lastGateIndex = 0;
-
-        for (int i = 1; i < route.coordinates.Count; i++)
+        // 間隔ゲートの開始位置
+        float firstGateOffset = gateDistance + gateInterval;
+        if (firstGateOffset > segmentLength - gateDistance)
         {
-            Vector3 startPos = ConvertGeographicToUnity(
-                route.coordinates[i - 1].Latitude,
-                route.coordinates[i - 1].Longitude,
-                originLatitude,
-                originLongitude
-            );
-            Vector3 endPos = ConvertGeographicToUnity(
-                route.coordinates[i].Latitude,
-                route.coordinates[i].Longitude,
-                originLatitude,
-                originLongitude
-            );
-            float segmentDistance = Vector3.Distance(startPos, endPos);
-            accumulatedDistance += segmentDistance;
+            // 間隔ゲートの配置開始位置が後方ゲートの位置を超える場合はスキップ
+            return;
+        }
 
-            while (accumulatedDistance >= route.gateInterval)
+        // ゲートを配置する位置のリストを作成
+        List<float> gateOffsets = new List<float>();
+        float currentOffset = firstGateOffset;
+
+        while (currentOffset <= segmentLength - gateDistance)
+        {
+            gateOffsets.Add(currentOffset);
+            currentOffset += gateInterval;
+        }
+
+        // 間隔ゲートを配置
+        foreach (float offset in gateOffsets)
+        {
+            Vector3 gatePosition = startPos + direction * offset;
+            gatePosition.y += gateYOffset;
+
+            GameObject gate = Instantiate(gatePrefab, gatePosition, Quaternion.identity, transform);
+            gate.name = $"{route.routeName}_Gate_Interval_{segmentIndex + 1}_{offset}m";
+
+            // ゲートの向きを進行方向に合わせる（y軸のみ回転）
+            Vector3 gateDirection = (endPos - gatePosition).normalized;
+            gateDirection.y = 0; // y軸の成分を除去して水平に向ける
+            if (gateDirection != Vector3.zero)
             {
-                accumulatedDistance -= route.gateInterval;
-                float t = 1f - (accumulatedDistance / segmentDistance);
-                Vector3 gatePosition = Vector3.Lerp(startPos, endPos, t);
-
-                // ゲートのY座標を調整
-                gatePosition.y += gateYOffset;
-
-                // ゲートをインスタンス化
-                GameObject gate = Instantiate(gatePrefab, gatePosition, Quaternion.identity, transform);
-                gate.name = $"{route.routeName}_Gate_Interval_{lastGateIndex + 1}";
-
-                // ゲートの向きを進行方向に合わせる（y軸のみ回転）
-                Vector3 direction = endPos - gatePosition;
-                direction.y = 0; // y軸の成分を除去して水平に向ける
-                if (direction != Vector3.zero)
-                {
-                    gate.transform.rotation = Quaternion.LookRotation(direction) * Quaternion.Euler(0f, 90f, 0f); // Y軸周りに90度回転
-                }
-
-                objectManager.AddGate(gate);
-                lastGateIndex++;
+                gate.transform.rotation = Quaternion.LookRotation(gateDirection) * Quaternion.Euler(0f, 90f, 0f);
             }
+
+            objectManager.AddGate(gate);
+            DebugLogger.Instance?.LogInfo($"Instantiated {gate.name} at {gatePosition}");
         }
     }
 

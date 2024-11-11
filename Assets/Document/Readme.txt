@@ -31,6 +31,11 @@ DebugRouteManager.cs
 →「Prefabs」に「Gate」プレハブをアタッチ
 →「NavigationMode」で使用するナビゲーションタイプを選択「Allow，Gate」
 
+//説明欄
+Gate：チェックポイントで曲がる方向を見失わないように「前方ゲート」「後方ゲート」作成
+	各チェックポイントの前方と後方に3m間隔をあけて配置
+	その他のゲートは、各セグメントの残り距離（前方ゲートおよび後方ゲートを除いた距離）に基づき、指定されたgateIntervalごとにゲートを配置
+
 1.5．DebugObjectManagerオブジェクト
 DebugObjectManager.cs
 →「TargetObject」に「Player」オブジェクトをアタッチ
