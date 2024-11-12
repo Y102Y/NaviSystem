@@ -50,8 +50,8 @@ public class DebugRouteManager : MonoBehaviour
     public enum NavigationMode
     {
         Arrow,
-        Gate,
-        Both
+        Gate
+        // Bothを削除
     }
 
     void Start()
@@ -122,7 +122,7 @@ public class DebugRouteManager : MonoBehaviour
             );
 
             // チェックポイントのインスタンス化（矢印関連の処理は既存のまま）
-            if (arrowPrefab != null)
+            if (arrowPrefab != null && (navigationMode == NavigationMode.Arrow))
             {
                 GameObject arrowInstance = Instantiate(arrowPrefab, unityPosition, Quaternion.identity, transform);
                 arrowInstance.name = $"{route.routeName}_Arrow_Checkpoint_{i + 1}";
@@ -143,7 +143,7 @@ public class DebugRouteManager : MonoBehaviour
                 objectManager.AddCheckpoint(arrowInstance);
                 DebugLogger.Instance?.LogInfo($"Instantiated {arrowInstance.name} at {unityPosition}");
             }
-            else
+            else if (arrowPrefab == null && navigationMode == NavigationMode.Arrow)
             {
                 DebugLogger.Instance?.LogError("DebugRouteManager: ArrowPrefabがアサインされていません。");
             }
@@ -152,7 +152,7 @@ public class DebugRouteManager : MonoBehaviour
         }
 
         // ゲートの配置（各セグメントごと）
-        if (navigationMode == NavigationMode.Gate || navigationMode == NavigationMode.Both)
+        if (navigationMode == NavigationMode.Gate)
         {
             PlaceGatesForRoute(route);
         }
