@@ -4,6 +4,9 @@ using UnityEngine;
 using System.Collections.Generic;
 using System;
 
+/// <summary>
+/// ルートデータを管理し、ナビゲーション用のオブジェクトをインスタンス化するクラス
+/// </summary>
 public class DebugRouteManager : MonoBehaviour
 {
     [Header("Origin Coordinates")]
@@ -30,41 +33,49 @@ public class DebugRouteManager : MonoBehaviour
     [Tooltip("ゲート（Gate）プレハブ")]
     public GameObject gatePrefab;
     [Tooltip("ライン（Line）プレハブ")]
-    public GameObject linePrefab; // 新規追加
+    public GameObject linePrefab; // ラインプレハブ
 
     [Header("Navigation Mode")]
     [Tooltip("ナビゲーションモードを選択してください。")]
     public NavigationMode navigationMode = NavigationMode.Arrow;
+
+    // 矢印の設定
+    [Header("Arrow Settings")]
+    [Tooltip("矢印のY軸オフセット（メートル）")]
+    public float arrowYOffset = 1.5f; // デフォルトのオフセット値
 
     [Header("Gate Position Settings")]
     [Tooltip("ゲートのY軸オフセット（メートル）")]
     public float gateYOffset = 2f;
     [Tooltip("ゲートを配置する前後の距離（メートル）")]
     public float gateDistance = 3f; // 前後3ｍ
-    [Tooltip("ゲートを配置する間隔（メートル）")]
-    public float gateInterval = 5f; // 間隔5ｍ
+    // gateIntervalはRouteDataから取得
 
     [Header("Line Settings")]
     [Tooltip("ラインの幅（メートル）")]
-    public float lineWidth = 0.5f;
+    public float lineWidth = 0.2f; // ライン幅
     [Tooltip("ラインの高さ（Y軸オフセット、メートル）")]
     public float lineYOffset = 0.1f; // 地面に軽く浮かせる
 
-    [Tooltip("カーブを適用する距離（メートル）")]
-    public float curveDistance = 3f; // 各チェックポイント前後に3mのカーブを適用
     [Tooltip("カーブの高さ（メートル）")]
     public float curveHeight = 2f; // カーブの高さ
 
+    [Header("Debug Settings")]
+    [Tooltip("全ての矢印を常に表示する")]
+    public bool showAllArrows = false; // デバッグ用フラグ
+
     // ナビゲーション変数
     private int currentCheckpointIndex = 0;
+    private List<List<Vector3>> allCheckpointPositions = new List<List<Vector3>>();
     private List<Vector3> checkpointPositions = new List<Vector3>();
+    private RouteData currentRouteData;
 
     // ナビゲーションモードの列挙型
     public enum NavigationMode
     {
         Arrow,
         Gate,
-        Line // 新規追加
+        Line // ラインモード
     }
 
     void Start()
@@ -72,6 +83,36 @@ public class DebugRouteManager : MonoBehaviour
         InitializeDependencies();
         InstantiateAllRoutes();
         DebugLogger.Instance?.LogInfo($"DebugRouteManager: {GetTotalCheckpointCount()} checkpoints と {GetTotalGateCount()} gates と {GetTotalLineCount()} lines をインスタンス化しました。");
+    }
+
+    void Update()
+    {
+        // ユーザーの位置とヘディングを取得（仮実装）
+        Vector3 userPosition = GetUserPosition();
+        float userHeading = GetUserHeading();
+
+        // ナビゲーションを更新
+        UpdateNavigation(userPosition, userHeading);
+    }
+
+    /// <summary>
+    /// ユーザーの位置を取得するメソッド（仮実装）
+    /// </summary>
+    private Vector3 GetUserPosition()
+    {
+        // 実際のユーザーの位置取得ロジックを実装
+        // ここではカメラの位置を使用
+        return Camera.main.transform.position;
+    }
+
+    /// <summary>
+    /// ユーザーのヘディングを取得するメソッド（仮実装）
+    /// </summary>
+    private float GetUserHeading()
+    {
+        // 実際のユーザーのヘディング取得ロジックを実装
+        // ここではカメラのY軸の回転を使用
+        return Camera.main.transform.eulerAngles.y;
     }
 
     /// <summary>
@@ -129,18 +170,22 @@ public class DebugRouteManager : MonoBehaviour
             return;
         }
 
+        List<Vector3> checkpointPositions = new List<Vector3>();
+
         // チェックポイントの配置
-        for (int i = 0; i < route.coordinates.Count; i++)
+        foreach (Coordinate coord in route.coordinates)
         {
             Vector3 unityPosition = ConvertGeographicToUnity(
-                route.coordinates[i].Latitude,
-                route.coordinates[i].Longitude,
+                coord.Latitude,
+                coord.Longitude,
                 originLatitude,
                 originLongitude
             );
 
             checkpointPositions.Add(unityPosition);
         }
+
+        allCheckpointPositions.Add(checkpointPositions); // 複数ルート対応
 
         // ナビゲーションモードに応じた配置処理
         if (navigationMode == NavigationMode.Arrow && arrowPrefab != null)
@@ -152,11 +197,11 @@ public class DebugRouteManager : MonoBehaviour
         }
         else if (navigationMode == NavigationMode.Gate && gatePrefab != null)
         {
-            PlaceGatesForRoute(route);
+            PlaceGatesForRoute(route, checkpointPositions);
         }
         else if (navigationMode == NavigationMode.Line && linePrefab != null)
         {
-            PlaceLineForRoute(route);
+            PlaceLineForRoute(route, checkpointPositions);
         }
     }
 
@@ -168,18 +213,16 @@ public class DebugRouteManager : MonoBehaviour
     /// <param name="unityPosition">チェックポイントの位置</param>
     private void InstantiateArrow(RouteData route, int index, Vector3 unityPosition)
     {
-        GameObject arrowInstance = Instantiate(arrowPrefab, unityPosition, Quaternion.identity, transform);
+        Vector3 arrowPosition = unityPosition;
+        arrowPosition.y += arrowYOffset; // オフセットを追加
+
+        GameObject arrowInstance = Instantiate(arrowPrefab, unityPosition, Quaternion.identity, null);
         arrowInstance.name = $"{route.routeName}_Arrow_Checkpoint_{index + 1}";
 
-        // 初期の矢印のみアクティブに
-        if (index == 0)
-        {
-            arrowInstance.SetActive(true);
-        }
-        else
-        {
-            arrowInstance.SetActive(false);
-        }
+        Debug.Log($"Arrow instantiated at position: {arrowPosition}");
+
+        // 矢印のアクティブ状態を設定
+        arrowInstance.SetActive(showAllArrows || index == 0);
 
         // チェックポイントの向きを設定
         SetCheckpointRotation(route, index, arrowInstance, unityPosition);
@@ -192,9 +235,12 @@ public class DebugRouteManager : MonoBehaviour
     /// ルート全体に対してゲートを配置するメソッド
     /// </summary>
     /// <param name="route">RouteDataアセット</param>
-    private void PlaceGatesForRoute(RouteData route)
+    /// <param name="checkpointPositions">チェックポイントの位置リスト</param>
+    private void PlaceGatesForRoute(RouteData route, List<Vector3> checkpointPositions)
     {
-        for (int i = 0; i < route.coordinates.Count - 1; i++)
+        float gateInterval = route.gateInterval;
+
+        for (int i = 0; i < checkpointPositions.Count - 1; i++)
         {
             Vector3 startPos = checkpointPositions[i];
             Vector3 endPos = checkpointPositions[i + 1];
@@ -236,7 +282,7 @@ public class DebugRouteManager : MonoBehaviour
             DebugLogger.Instance?.LogInfo($"Instantiated {gateAfter.name} at {gateAfterPosition}");
 
             // 間隔ゲートの配置
-            PlaceGatesAtIntervals(route, i, startPos, endPos, direction, segmentLength);
+            PlaceGatesAtIntervals(route, i, startPos, endPos, direction, segmentLength, gateInterval);
         }
     }
 
@@ -249,7 +295,8 @@ public class DebugRouteManager : MonoBehaviour
     /// <param name="endPos">セグメントの終了位置</param>
     /// <param name="direction">セグメントの方向ベクトル</param>
     /// <param name="segmentLength">セグメントの長さ</param>
-    private void PlaceGatesAtIntervals(RouteData route, int segmentIndex, Vector3 startPos, Vector3 endPos, Vector3 direction, float segmentLength)
+    /// <param name="gateInterval">ゲート間隔（メートル）</param>
+    private void PlaceGatesAtIntervals(RouteData route, int segmentIndex, Vector3 startPos, Vector3 endPos, Vector3 direction, float segmentLength, float gateInterval)
     {
         // ゲート配置可能な距離を計算（前後ゲートを除く）
         float availableDistance = segmentLength - 2 * gateDistance;
@@ -301,10 +348,12 @@ public class DebugRouteManager : MonoBehaviour
 
     /// <summary>
     /// ルート全体に対してラインを配置するメソッド
-    /// 各チェックポイントの前後に3mずつカーブを適用し、その他は直線
+    /// 各チェックポイントで自然なカーブを実現
+    /// 単一の LineRenderer を使用
     /// </summary>
     /// <param name="route">RouteDataアセット</param>
-    private void PlaceLineForRoute(RouteData route)
+    /// <param name="checkpointPositions">チェックポイントの位置リスト</param>
+    private void PlaceLineForRoute(RouteData route, List<Vector3> checkpointPositions)
     {
         if (linePrefab == null)
         {
@@ -312,111 +361,92 @@ public class DebugRouteManager : MonoBehaviour
             return;
         }
 
-        for (int i = 0; i < checkpointPositions.Count - 1; i++)
+        // ルートごとに新しい GameObject を作成し、その中に LineRenderer を追加
+        GameObject lineObject = Instantiate(linePrefab, Vector3.zero, Quaternion.identity, transform);
+        lineObject.name = $"{route.routeName}_Line";
+
+        // ラインオブジェクトをX軸方向に90度回転
+        lineObject.transform.Rotate(90f, 0f, 0f); // ここで回転を適用
+
+        LineRenderer lr = lineObject.GetComponent<LineRenderer>();
+        if (lr == null)
         {
-            Vector3 startPos = checkpointPositions[i];
-            Vector3 endPos = checkpointPositions[i + 1];
-            Vector3 direction = (endPos - startPos).normalized;
-            float segmentLength = Vector3.Distance(startPos, endPos);
-
-            // カーブを適用する距離
-            float curveDist = curveDistance;
-
-            // セグメントが十分な長さであるか確認
-            if (segmentLength < 2 * curveDist)
-            {
-                // カーブを適用する余裕がない場合は直線のみ
-                InstantiateStraightLine(startPos, endPos, route.routeName, i);
-                continue;
-            }
-
-            // カーブ部分の開始位置と終了位置を計算
-            Vector3 curveStartPos = startPos + direction * curveDist;
-            Vector3 curveEndPos = endPos - direction * curveDist;
-
-            // 直線部分を描画（startPos から curveStartPos）
-            InstantiateStraightLine(startPos, curveStartPos, route.routeName, i);
-
-            // カーブ部分を描画（curveStartPos から curveEndPos）
-            InstantiateCurveLine(route, curveStartPos, curveEndPos, i);
-
-            // 直線部分を描画（curveEndPos から endPos）
-            InstantiateStraightLine(curveEndPos, endPos, route.routeName, i);
-        }
-    }
-
-    /// <summary>
-    /// 直線部分を描画するためのメソッド
-    /// </summary>
-    private void InstantiateStraightLine(Vector3 start, Vector3 end, string routeName, int segmentIndex)
-    {
-        GameObject lineInstance = Instantiate(linePrefab, Vector3.zero, Quaternion.identity, transform);
-        lineInstance.name = $"{routeName}_Line_Segment_{segmentIndex + 1}_Straight";
-
-        LineRenderer lr = lineInstance.GetComponent<LineRenderer>();
-        if (lr != null)
-        {
-            lr.positionCount = 2;
-            lr.SetPosition(0, new Vector3(start.x, start.y + lineYOffset, start.z));
-            lr.SetPosition(1, new Vector3(end.x, end.y + lineYOffset, end.z));
-            lr.startWidth = lineWidth;
-            lr.endWidth = lineWidth;
-        }
-        else
-        {
-            DebugLogger.Instance?.LogError($"DebugRouteManager: {lineInstance.name} に LineRenderer コンポーネントがアタッチされていません。");
-            Destroy(lineInstance);
+            DebugLogger.Instance?.LogError($"DebugRouteManager: {lineObject.name} に LineRenderer コンポーネントがアタッチされていません。");
+            Destroy(lineObject);
             return;
         }
 
-        objectManager.AddLine(lineInstance);
-        DebugLogger.Instance?.LogInfo($"Instantiated {lineInstance.name} from {start} to {end}");
-    }
+        lr.material = new Material(Shader.Find("Sprites/Default")); // 適切なシェーダーとマテリアルを選択
+        lr.startWidth = lineWidth;
+        lr.endWidth = lineWidth;
+        lr.positionCount = 0;
+        lr.useWorldSpace = true;
+        lr.alignment = LineAlignment.TransformZ; // Local から TransformZ に変更
+        lr.sortingOrder = 1;
 
-    /// <summary>
-    /// カーブ部分を描画するためのメソッド（二次ベジェ曲線を使用）
-    /// </summary>
-    private void InstantiateCurveLine(RouteData route, Vector3 start, Vector3 end, int segmentIndex)
-    {
-        // 制御点を計算（カーブの高さを基に）
-        Vector3 midPoint = (start + end) / 2f;
-        Vector3 controlPoint = midPoint + Vector3.up * curveHeight;
+        // デバッグログでライン幅を確認
+        DebugLogger.Instance?.LogInfo($"LineRenderer Width - Start: {lr.startWidth}, End: {lr.endWidth}");
 
-        // ベジェ曲線の補間ポイントを生成
-        List<Vector3> bezierPoints = GetQuadraticBezierPoints(start, controlPoint, end, 20);
+        List<Vector3> finalPoints = new List<Vector3>();
 
-        for (int i = 0; i < bezierPoints.Count - 1; i++)
+        for (int i = 0; i < checkpointPositions.Count; i++)
         {
-            Vector3 p0 = bezierPoints[i];
-            Vector3 p1 = bezierPoints[i + 1];
+            Vector3 currentPos = checkpointPositions[i];
+            finalPoints.Add(new Vector3(currentPos.x, currentPos.y + lineYOffset, currentPos.z));
 
-            GameObject lineInstance = Instantiate(linePrefab, Vector3.zero, Quaternion.identity, transform);
-            lineInstance.name = $"{route.routeName}_Line_Segment_{segmentIndex + 1}_Curve_{i + 1}";
-
-            LineRenderer lr = lineInstance.GetComponent<LineRenderer>();
-            if (lr != null)
+            if (i < checkpointPositions.Count - 1)
             {
-                lr.positionCount = 2;
-                lr.SetPosition(0, new Vector3(p0.x, p0.y + lineYOffset, p0.z));
-                lr.SetPosition(1, new Vector3(p1.x, p1.y + lineYOffset, p1.z));
-                lr.startWidth = lineWidth;
-                lr.endWidth = lineWidth;
-            }
-            else
-            {
-                DebugLogger.Instance?.LogError($"DebugRouteManager: {lineInstance.name} に LineRenderer コンポーネントがアタッチされていません。");
-                Destroy(lineInstance);
-                continue;
-            }
+                Vector3 nextPos = checkpointPositions[i + 1];
+                Vector3 direction = (nextPos - currentPos).normalized;
 
-            objectManager.AddLine(lineInstance);
-            DebugLogger.Instance?.LogInfo($"Instantiated {lineInstance.name} from {p0} to {p1}");
+                // 前後のセグメントの方向を取得
+                Vector3 incomingDir = (i > 0) ? (currentPos - checkpointPositions[i - 1]).normalized : direction;
+                Vector3 outgoingDir = (i < checkpointPositions.Count - 2) ? (checkpointPositions[i + 2] - nextPos).normalized : direction;
+
+                // バイセクター（角の中間）を計算
+                Vector3 bisector = (incomingDir + outgoingDir).normalized;
+                if (bisector == Vector3.zero)
+                {
+                    bisector = direction;
+                }
+
+                // 制御点の位置を計算
+                Vector3 controlPoint = currentPos + bisector * curveHeight;
+
+                // ベジェ曲線の補間ポイントを生成
+                List<Vector3> bezierPoints = GetQuadraticBezierPoints(
+                    new Vector3(currentPos.x, currentPos.y + lineYOffset, currentPos.z),
+                    new Vector3(controlPoint.x, controlPoint.y + lineYOffset, controlPoint.z),
+                    new Vector3(nextPos.x, nextPos.y + lineYOffset, nextPos.z),
+                    20 // 解像度
+                );
+
+                // ベジェ曲線のポイントを追加
+                foreach (Vector3 point in bezierPoints)
+                {
+                    finalPoints.Add(point);
+                    // デバッグログでポイントを確認（必要に応じてコメント解除）
+                    // DebugLogger.Instance?.LogInfo($"Added point: {point}");
+                }
+            }
         }
+
+        // LineRenderer にポイントを設定
+        lr.positionCount = finalPoints.Count;
+        lr.SetPositions(finalPoints.ToArray());
+
+        objectManager.AddLine(lineObject);
+        DebugLogger.Instance?.LogInfo($"Instantiated {lineObject.name} with {finalPoints.Count} points");
     }
 
     /// <summary>
     /// 二次ベジェ曲線の補間ポイントを生成するメソッド
     /// </summary>
+    /// <param name="p0">始点</param>
+    /// <param name="p1">制御点</param>
+    /// <param name="p2">終点</param>
+    /// <param name="resolution">解像度（ポイント数）</param>
+    /// <returns>補間されたポイントのリスト</returns>
     private List<Vector3> GetQuadraticBezierPoints(Vector3 p0, Vector3 p1, Vector3 p2, int resolution)
     {
         List<Vector3> points = new List<Vector3>();
@@ -516,6 +546,7 @@ public class DebugRouteManager : MonoBehaviour
         int total = 0;
         foreach (RouteData route in routes)
         {
+            float gateInterval = route.gateInterval;
             if (gateInterval <= 0f || gatePrefab == null) continue;
 
             float totalDistance = 0f;
@@ -551,8 +582,8 @@ public class DebugRouteManager : MonoBehaviour
         {
             if (linePrefab == null) continue;
 
-            // 各セグメントに対して直線2本とカーブ1本をカウント
-            total += (route.coordinates.Count - 1) * 3; // 各セグメントにつき直線2本 + カーブ1本
+            // 各ルートごとに1つのLineRendererを使用
+            total += 1;
         }
         return total;
     }
@@ -564,96 +595,89 @@ public class DebugRouteManager : MonoBehaviour
     /// <param name="userHeading">ユーザーの現在のヘディング</param>
     public void UpdateNavigation(Vector3 userPosition, float userHeading)
     {
-        // カメラの回転を更新
         Camera.main.transform.rotation = Quaternion.Euler(0, -userHeading, 0);
 
-        // 現在のチェックポイントの処理
         if (currentCheckpointIndex < checkpointPositions.Count)
         {
             Vector3 checkpointPosition = checkpointPositions[currentCheckpointIndex];
             float distance = Vector3.Distance(userPosition, checkpointPosition);
 
-            // ナビゲーションモードがArrowの場合のみ矢印の処理を行う
-            if (navigationMode == NavigationMode.Arrow)
+            // チェックポイントのTransformを取得
+            Transform checkpointTransform = GetCheckpointTransform(currentRouteData, currentCheckpointIndex);
+            if (checkpointTransform == null || checkpointTransform.childCount == 0)
             {
-                // チェックポイントにアタッチされた矢印を取得
-                Transform checkpointTransform = GetCheckpointTransform(currentCheckpointIndex);
-                if (checkpointTransform == null)
-                {
-                    DebugLogger.Instance.LogWarning($"DebugRouteManager: チェックポイント {currentCheckpointIndex} に矢印がアタッチされていません。");
-                    return;
-                }
+                DebugLogger.Instance.LogWarning($"DebugRouteManager: チェックポイント {currentCheckpointIndex} に矢印がアタッチされていません。");
+                return;
+            }
 
-                // 矢印が子オブジェクトとしてアタッチされていると仮定
-                if (checkpointTransform.childCount == 0)
-                {
-                    DebugLogger.Instance.LogWarning($"DebugRouteManager: チェックポイント {currentCheckpointIndex} に矢印が見つかりません。");
-                    return;
-                }
+            GameObject arrow = checkpointTransform.GetChild(0).gameObject;
 
-                GameObject arrow = checkpointTransform.GetChild(0).gameObject;
+            if (distance > maxVisibleDistance)
+            {
+                Vector3 direction = (checkpointPosition - userPosition).normalized;
+                arrow.transform.position = userPosition + direction * maxVisibleDistance;
+                arrow.transform.position += Vector3.up * arrowYOffset; // Yオフセット追加
+            }
+            else
+            {
+                arrow.transform.position = checkpointPosition;
+                arrow.transform.position += Vector3.up * arrowYOffset; // Yオフセット追加
+            }
 
-                if (distance > maxVisibleDistance)
+            arrow.transform.LookAt(userPosition);
+
+            if (distance < 5.0f)
+            {
+                arrow.SetActive(false);
+                currentCheckpointIndex++;
+                if (currentCheckpointIndex < checkpointPositions.Count)
                 {
-                    // 矢印をユーザーの前方に配置
-                    Vector3 direction = (checkpointPosition - userPosition).normalized;
-                    arrow.transform.position = userPosition + direction * maxVisibleDistance;
+                    Transform nextCheckpointTransform = GetCheckpointTransform(currentRouteData, currentCheckpointIndex);
+                    if (nextCheckpointTransform != null && nextCheckpointTransform.childCount > 0)
+                    {
+                        GameObject nextArrow = nextCheckpointTransform.GetChild(0).gameObject;
+                        nextArrow.SetActive(true);
+                    }
                 }
                 else
                 {
-                    // 矢印をチェックポイントの位置に配置
-                    arrow.transform.position = checkpointPosition;
-                }
-
-                // 矢印がユーザーの方を向くように回転
-                arrow.transform.LookAt(userPosition);
-
-                // 一定距離内に入ったら次のチェックポイントへ
-                if (distance < 5.0f)
-                {
-                    arrow.SetActive(false);
-                    currentCheckpointIndex++;
-                    if (currentCheckpointIndex < checkpointPositions.Count)
-                    {
-                        Transform nextCheckpointTransform = GetCheckpointTransform(currentCheckpointIndex);
-                        if (nextCheckpointTransform != null && nextCheckpointTransform.childCount > 0)
-                        {
-                            GameObject nextArrow = nextCheckpointTransform.GetChild(0).gameObject;
-                            nextArrow.SetActive(true);
-                        }
-                    }
-                    else
-                    {
-                        DebugLogger.Instance.LogInfo("DebugRouteManager: 目的地に到着しました。");
-                    }
+                    DebugLogger.Instance.LogInfo("DebugRouteManager: 目的地に到着しました。");
                 }
             }
-            // 他のナビゲーションモード（Gate, Line）は必要に応じて追加の処理を行う
         }
     }
 
+
+
     /// <summary>
-    /// 指定したチェックポイントインデックスのTransformを取得します。
+    /// 指定したルートとチェックポイントインデックスのTransformを取得します。
     /// </summary>
-    /// <param name="index">チェックポイントのインデックス</param>
+    /// <param name="route">対象のRouteData</param>
+    /// <param name="checkpointIndex">チェックポイントのインデックス</param>
     /// <returns>チェックポイントのTransform、存在しない場合はnull</returns>
-    private Transform GetCheckpointTransform(int index)
+    private Transform GetCheckpointTransform(RouteData route, int checkpointIndex)
     {
-        // チェックポイントの名前を基に検索
-        // ルート名が "Route1" と仮定
-        string routeName = routes[0].routeName; // 複数ルートの場合は適宜変更
-        string checkpointName = $"{routeName}_Arrow_Checkpoint_{index + 1}";
+        if (route == null)
+        {
+            DebugLogger.Instance.LogWarning("DebugRouteManager: ルートデータがnullです。");
+            return null;
+        }
+
+        string checkpointName = $"{route.routeName}_Arrow_Checkpoint_{checkpointIndex + 1}";
         GameObject checkpoint = GameObject.Find(checkpointName);
         return checkpoint != null ? checkpoint.transform : null;
     }
 
     void OnDrawGizmos()
     {
-        if (checkpointPositions == null) return;
+        if (allCheckpointPositions == null) return;
         Gizmos.color = Color.red;
-        foreach (var pos in checkpointPositions)
+        foreach (var routeCheckpoints in allCheckpointPositions)
         {
-            Gizmos.DrawSphere(pos, 0.5f);
+            foreach (var pos in routeCheckpoints)
+            {
+                Gizmos.DrawSphere(pos, 0.5f);
+            }
         }
     }
 }

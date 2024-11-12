@@ -45,9 +45,9 @@ public class DebugMainManager : MonoBehaviour
     private void HandleDebugInput()
     {
         // 例: 特定のキー入力でデバッグ情報を表示
-        if (Input.GetKeyDown(KeyCode.D))
+        if (Input.GetKeyDown(KeyCode.F))
         {
-            DebugLogger.Instance.LogInfo("DebugMainManager: 'D'キーが押されました。デバッグ情報を表示します。");
+            DebugLogger.Instance.LogInfo("DebugMainManager: 'F'キーが押されました。デバッグ情報を表示します。");
             DisplayDebugInfo();
         }
     }
