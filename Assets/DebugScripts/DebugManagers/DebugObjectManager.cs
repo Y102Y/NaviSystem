@@ -5,48 +5,50 @@ using System.Collections.Generic;
 
 public class DebugObjectManager : MonoBehaviour
 {
-    // 管理するオブジェクトのリスト
     private List<GameObject> checkpoints = new List<GameObject>();
     private List<GameObject> gates = new List<GameObject>();
+    private List<GameObject> lines = new List<GameObject>(); // ライン用リストを追加
 
     /// <summary>
-    /// チェックポイントを追加するメソッド
+    /// チェックポイントをリストに追加します。
     /// </summary>
     /// <param name="checkpoint">追加するチェックポイントのGameObject</param>
     public void AddCheckpoint(GameObject checkpoint)
     {
-        if (checkpoint != null)
+        if (checkpoint != null && !checkpoints.Contains(checkpoint))
         {
             checkpoints.Add(checkpoint);
-            DebugLogger.Instance.LogInfo($"DebugObjectManager: チェックポイント {checkpoint.name} を追加しました。");
-        }
-        else
-        {
-            DebugLogger.Instance.LogError("DebugObjectManager: チェックポイントがnullです。");
         }
     }
 
     /// <summary>
-    /// ゲートを追加するメソッド
+    /// ゲートをリストに追加します。
     /// </summary>
     /// <param name="gate">追加するゲートのGameObject</param>
     public void AddGate(GameObject gate)
     {
-        if (gate != null)
+        if (gate != null && !gates.Contains(gate))
         {
             gates.Add(gate);
-            DebugLogger.Instance.LogInfo($"DebugObjectManager: ゲート {gate.name} を追加しました。");
-        }
-        else
-        {
-            DebugLogger.Instance.LogError("DebugObjectManager: ゲートがnullです。");
         }
     }
 
     /// <summary>
-    /// すべてのチェックポイントを削除するメソッド
+    /// ラインをリストに追加します。
     /// </summary>
-    public void RemoveAllCheckpoints()
+    /// <param name="line">追加するラインのGameObject</param>
+    public void AddLine(GameObject line)
+    {
+        if (line != null && !lines.Contains(line))
+        {
+            lines.Add(line);
+        }
+    }
+
+    /// <summary>
+    /// すべてのオブジェクトを削除します。
+    /// </summary>
+    public void ClearAllObjects()
     {
         foreach (GameObject checkpoint in checkpoints)
         {
@@ -56,14 +58,7 @@ public class DebugObjectManager : MonoBehaviour
             }
         }
         checkpoints.Clear();
-        DebugLogger.Instance.LogInfo("DebugObjectManager: すべてのチェックポイントを削除しました。");
-    }
 
-    /// <summary>
-    /// すべてのゲートを削除するメソッド
-    /// </summary>
-    public void RemoveAllGates()
-    {
         foreach (GameObject gate in gates)
         {
             if (gate != null)
@@ -72,11 +67,19 @@ public class DebugObjectManager : MonoBehaviour
             }
         }
         gates.Clear();
-        DebugLogger.Instance.LogInfo("DebugObjectManager: すべてのゲートを削除しました。");
+
+        foreach (GameObject line in lines)
+        {
+            if (line != null)
+            {
+                Destroy(line);
+            }
+        }
+        lines.Clear();
     }
 
     /// <summary>
-    /// 現在のチェックポイント数を取得するメソッド
+    /// チェックポイントの数を取得します。
     /// </summary>
     /// <returns>チェックポイントの数</returns>
     public int GetCheckpointCount()
@@ -85,11 +88,20 @@ public class DebugObjectManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 現在のゲート数を取得するメソッド
+    /// ゲートの数を取得します。
     /// </summary>
     /// <returns>ゲートの数</returns>
     public int GetGateCount()
     {
         return gates.Count;
+    }
+
+    /// <summary>
+    /// ラインの数を取得します。
+    /// </summary>
+    /// <returns>ラインの数</returns>
+    public int GetLineCount()
+    {
+        return lines.Count;
     }
 }
