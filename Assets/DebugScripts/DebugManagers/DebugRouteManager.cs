@@ -236,10 +236,26 @@ public class DebugRouteManager : MonoBehaviour
     /// </summary>
     /// <param name="route">RouteDataアセット</param>
     /// <param name="checkpointPositions">チェックポイントの位置リスト</param>
+
     private void PlaceGatesForRoute(RouteData route, List<Vector3> checkpointPositions)
     {
         float gateInterval = route.gateInterval;
 
+        // **スタート地点（原点）から最初のチェックポイントまでのゲートを追加**
+        if (checkpointPositions.Count > 0)
+        {
+            Vector3 startPoint = ConvertGeographicToUnity(originLatitude, originLongitude, originLatitude, originLongitude);
+            startPoint.y += gateYOffset; // Yオフセットを追加
+
+            Vector3 firstCheckpoint = checkpointPositions[0];
+            Vector3 directionToFirstCheckpoint = (firstCheckpoint - startPoint).normalized;
+            float distanceToFirstCheckpoint = Vector3.Distance(startPoint, firstCheckpoint);
+
+            // スタート地点と最初のチェックポイントの間にゲートを配置
+            PlaceGatesBetweenPoints(route, startPoint, firstCheckpoint, directionToFirstCheckpoint, distanceToFirstCheckpoint, gateInterval);
+        }
+
+        // 各チェックポイント間にゲートを配置
         for (int i = 0; i < checkpointPositions.Count - 1; i++)
         {
             Vector3 startPos = checkpointPositions[i];
@@ -283,6 +299,38 @@ public class DebugRouteManager : MonoBehaviour
 
             // 間隔ゲートの配置
             PlaceGatesAtIntervals(route, i, startPos, endPos, direction, segmentLength, gateInterval);
+        }
+    }
+
+    private void PlaceGatesBetweenPoints(RouteData route, Vector3 startPos, Vector3 endPos, Vector3 direction, float segmentLength, float gateInterval)
+    {
+        // **startPos.y にすでに YOffset が含まれている場合を考慮して Y を直接設定**
+        float baseY = startPos.y;
+
+        for (float d = 0; d <= segmentLength; d += gateInterval)
+        {
+            // ゲートの位置を計算
+            Vector3 gatePosition = startPos + direction * d;
+
+            // **baseY を基準に Y 座標を設定**
+            gatePosition.y = baseY + gateYOffset;
+
+            // デバッグログで位置を確認
+            Debug.Log($"Gate Position: {gatePosition} (YOffset: {gateYOffset})");
+
+            // ゲートを生成
+            GameObject gate = Instantiate(gatePrefab, gatePosition, Quaternion.identity, transform);
+            gate.name = $"{route.routeName}_Gate_{d:F1}m";
+
+            // ゲートの向きを設定
+            if (direction != Vector3.zero)
+            {
+                gate.transform.rotation = Quaternion.LookRotation(direction) * Quaternion.Euler(0f, 90f, 0f);
+            }
+
+            // オブジェクトマネージャーに追加
+            objectManager.AddGate(gate);
+            DebugLogger.Instance?.LogInfo($"Instantiated {gate.name} at {gatePosition}");
         }
     }
 
@@ -381,7 +429,7 @@ public class DebugRouteManager : MonoBehaviour
         lr.endWidth = lineWidth;
         lr.positionCount = 0;
         lr.useWorldSpace = true;
-        lr.alignment = LineAlignment.TransformZ; // Local から TransformZ に変更
+        lr.alignment = LineAlignment.View; // Local から View に変更
         lr.sortingOrder = 1;
 
         // デバッグログでライン幅を確認
@@ -389,45 +437,52 @@ public class DebugRouteManager : MonoBehaviour
 
         List<Vector3> finalPoints = new List<Vector3>();
 
-        for (int i = 0; i < checkpointPositions.Count; i++)
+        // **スタート地点（原点）の追加**: 原点を最初のポイントとして追加
+        Vector3 startPoint = ConvertGeographicToUnity(originLatitude, originLongitude, originLatitude, originLongitude);
+        startPoint.y += lineYOffset; // Yオフセットを追加
+        finalPoints.Add(startPoint);
+
+        if (checkpointPositions.Count > 0)
+        {
+            // 原点から最初のチェックポイントへの直線を追加
+            Vector3 firstCheckpoint = checkpointPositions[0];
+            finalPoints.Add(new Vector3(firstCheckpoint.x, firstCheckpoint.y + lineYOffset, firstCheckpoint.z));
+        }
+
+        for (int i = 0; i < checkpointPositions.Count - 1; i++)
         {
             Vector3 currentPos = checkpointPositions[i];
-            finalPoints.Add(new Vector3(currentPos.x, currentPos.y + lineYOffset, currentPos.z));
+            Vector3 nextPos = checkpointPositions[i + 1];
+            Vector3 direction = (nextPos - currentPos).normalized;
 
-            if (i < checkpointPositions.Count - 1)
+            // 前後のセグメントの方向を取得
+            Vector3 incomingDir = (i > 0) ? (currentPos - checkpointPositions[i - 1]).normalized : direction;
+            Vector3 outgoingDir = (i < checkpointPositions.Count - 2) ? (checkpointPositions[i + 2] - nextPos).normalized : direction;
+
+            // バイセクター（角の中間）を計算
+            Vector3 bisector = (incomingDir + outgoingDir).normalized;
+            if (bisector == Vector3.zero)
             {
-                Vector3 nextPos = checkpointPositions[i + 1];
-                Vector3 direction = (nextPos - currentPos).normalized;
+                bisector = direction;
+            }
 
-                // 前後のセグメントの方向を取得
-                Vector3 incomingDir = (i > 0) ? (currentPos - checkpointPositions[i - 1]).normalized : direction;
-                Vector3 outgoingDir = (i < checkpointPositions.Count - 2) ? (checkpointPositions[i + 2] - nextPos).normalized : direction;
+            // 制御点の位置を計算
+            Vector3 controlPoint = currentPos + bisector * curveHeight;
 
-                // バイセクター（角の中間）を計算
-                Vector3 bisector = (incomingDir + outgoingDir).normalized;
-                if (bisector == Vector3.zero)
-                {
-                    bisector = direction;
-                }
+            // ベジェ曲線の補間ポイントを生成
+            List<Vector3> bezierPoints = GetQuadraticBezierPoints(
+                new Vector3(currentPos.x, currentPos.y + lineYOffset, currentPos.z),
+                new Vector3(controlPoint.x, controlPoint.y + lineYOffset, controlPoint.z),
+                new Vector3(nextPos.x, nextPos.y + lineYOffset, nextPos.z),
+                50 // 解像度
+            );
 
-                // 制御点の位置を計算
-                Vector3 controlPoint = currentPos + bisector * curveHeight;
-
-                // ベジェ曲線の補間ポイントを生成
-                List<Vector3> bezierPoints = GetQuadraticBezierPoints(
-                    new Vector3(currentPos.x, currentPos.y + lineYOffset, currentPos.z),
-                    new Vector3(controlPoint.x, controlPoint.y + lineYOffset, controlPoint.z),
-                    new Vector3(nextPos.x, nextPos.y + lineYOffset, nextPos.z),
-                    20 // 解像度
-                );
-
-                // ベジェ曲線のポイントを追加
-                foreach (Vector3 point in bezierPoints)
-                {
-                    finalPoints.Add(point);
-                    // デバッグログでポイントを確認（必要に応じてコメント解除）
-                    // DebugLogger.Instance?.LogInfo($"Added point: {point}");
-                }
+            // ベジェ曲線のポイントを追加
+            foreach (Vector3 point in bezierPoints)
+            {
+                finalPoints.Add(point);
+                // デバッグログでポイントを確認（必要に応じてコメント解除）
+                // DebugLogger.Instance?.LogInfo($"Added point: {point}");
             }
         }
 
@@ -438,6 +493,7 @@ public class DebugRouteManager : MonoBehaviour
         objectManager.AddLine(lineObject);
         DebugLogger.Instance?.LogInfo($"Instantiated {lineObject.name} with {finalPoints.Count} points");
     }
+
 
     /// <summary>
     /// 二次ベジェ曲線の補間ポイントを生成するメソッド
