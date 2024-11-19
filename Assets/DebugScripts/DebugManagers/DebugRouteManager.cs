@@ -241,21 +241,6 @@ public class DebugRouteManager : MonoBehaviour
     {
         float gateInterval = route.gateInterval;
 
-        // **スタート地点（原点）から最初のチェックポイントまでのゲートを追加**
-        if (checkpointPositions.Count > 0)
-        {
-            Vector3 startPoint = ConvertGeographicToUnity(originLatitude, originLongitude, originLatitude, originLongitude);
-            startPoint.y += gateYOffset; // Yオフセットを追加
-
-            Vector3 firstCheckpoint = checkpointPositions[0];
-            Vector3 directionToFirstCheckpoint = (firstCheckpoint - startPoint).normalized;
-            float distanceToFirstCheckpoint = Vector3.Distance(startPoint, firstCheckpoint);
-
-            // スタート地点と最初のチェックポイントの間にゲートを配置
-            PlaceGatesBetweenPoints(route, startPoint, firstCheckpoint, directionToFirstCheckpoint, distanceToFirstCheckpoint, gateInterval);
-        }
-
-        // 各チェックポイント間にゲートを配置
         for (int i = 0; i < checkpointPositions.Count - 1; i++)
         {
             Vector3 startPos = checkpointPositions[i];
@@ -263,32 +248,41 @@ public class DebugRouteManager : MonoBehaviour
             Vector3 direction = (endPos - startPos).normalized;
             float segmentLength = Vector3.Distance(startPos, endPos);
 
-            // 前方ゲートの配置
-            Vector3 gateBeforePosition = startPos + direction * gateDistance;
-            gateBeforePosition.y += gateYOffset;
-            GameObject gateBefore = Instantiate(gatePrefab, gateBeforePosition, Quaternion.identity, transform);
-            gateBefore.name = $"{route.routeName}_Gate_Before_{i + 1}";
+            // デバッグログで座標情報を確認
+            Debug.Log($"startPos: {startPos}, endPos: {endPos}, direction: {direction}, segmentLength: {segmentLength}");
 
-            // ゲートの向きをチェックポイントに合わせる（y軸のみ回転）
-            Vector3 directionToCheckpoint = (endPos - gateBeforePosition).normalized;
-            directionToCheckpoint.y = 0; // y軸の成分を除去して水平に向ける
-            if (directionToCheckpoint != Vector3.zero)
+            // 1つ目のチェックポイントの前方ゲートをスキップ
+            if (i > 0)
             {
-                gateBefore.transform.rotation = Quaternion.LookRotation(directionToCheckpoint) * Quaternion.Euler(0f, 90f, 0f);
+                // 前方ゲートの配置
+                Vector3 gateBeforePosition = startPos + direction * gateDistance;
+                gateBeforePosition.y += gateYOffset;
+
+                GameObject gateBefore = Instantiate(gatePrefab, gateBeforePosition, Quaternion.identity, transform);
+                gateBefore.name = $"{route.routeName}_Gate_Before_{i + 1}";
+
+                Vector3 directionToCheckpoint = (endPos - gateBeforePosition).normalized;
+                directionToCheckpoint.y = 0;
+                if (directionToCheckpoint != Vector3.zero)
+                {
+                    gateBefore.transform.rotation = Quaternion.LookRotation(directionToCheckpoint) * Quaternion.Euler(0f, 90f, 0f);
+                }
+
+                objectManager.AddGate(gateBefore);
+                DebugLogger.Instance?.LogInfo($"Instantiated {gateBefore.name} at {gateBeforePosition}");
             }
 
-            objectManager.AddGate(gateBefore);
-            DebugLogger.Instance?.LogInfo($"Instantiated {gateBefore.name} at {gateBeforePosition}");
-
-            // 後方ゲートの配置
+            // 後方ゲートの配置（全てのチェックポイントで実行）
             Vector3 gateAfterPosition = endPos - direction * gateDistance;
             gateAfterPosition.y += gateYOffset;
+
+            Debug.Log($"Calculated Gate_After Position: {gateAfterPosition}, Direction: {direction}, GateDistance: {gateDistance}");
+
             GameObject gateAfter = Instantiate(gatePrefab, gateAfterPosition, Quaternion.identity, transform);
             gateAfter.name = $"{route.routeName}_Gate_After_{i + 1}";
 
-            // ゲートの向きをチェックポイントに合わせる（y軸のみ回転）
             Vector3 directionFromCheckpoint = (gateAfterPosition - startPos).normalized;
-            directionFromCheckpoint.y = 0; // y軸の成分を除去して水平に向ける
+            directionFromCheckpoint.y = 0;
             if (directionFromCheckpoint != Vector3.zero)
             {
                 gateAfter.transform.rotation = Quaternion.LookRotation(directionFromCheckpoint) * Quaternion.Euler(0f, 90f, 0f);
@@ -299,38 +293,6 @@ public class DebugRouteManager : MonoBehaviour
 
             // 間隔ゲートの配置
             PlaceGatesAtIntervals(route, i, startPos, endPos, direction, segmentLength, gateInterval);
-        }
-    }
-
-    private void PlaceGatesBetweenPoints(RouteData route, Vector3 startPos, Vector3 endPos, Vector3 direction, float segmentLength, float gateInterval)
-    {
-        // **startPos.y にすでに YOffset が含まれている場合を考慮して Y を直接設定**
-        float baseY = startPos.y;
-
-        for (float d = 0; d <= segmentLength; d += gateInterval)
-        {
-            // ゲートの位置を計算
-            Vector3 gatePosition = startPos + direction * d;
-
-            // **baseY を基準に Y 座標を設定**
-            gatePosition.y = baseY + gateYOffset;
-
-            // デバッグログで位置を確認
-            Debug.Log($"Gate Position: {gatePosition} (YOffset: {gateYOffset})");
-
-            // ゲートを生成
-            GameObject gate = Instantiate(gatePrefab, gatePosition, Quaternion.identity, transform);
-            gate.name = $"{route.routeName}_Gate_{d:F1}m";
-
-            // ゲートの向きを設定
-            if (direction != Vector3.zero)
-            {
-                gate.transform.rotation = Quaternion.LookRotation(direction) * Quaternion.Euler(0f, 90f, 0f);
-            }
-
-            // オブジェクトマネージャーに追加
-            objectManager.AddGate(gate);
-            DebugLogger.Instance?.LogInfo($"Instantiated {gate.name} at {gatePosition}");
         }
     }
 
@@ -702,8 +664,6 @@ public class DebugRouteManager : MonoBehaviour
             }
         }
     }
-
-
 
     /// <summary>
     /// 指定したルートとチェックポイントインデックスのTransformを取得します。

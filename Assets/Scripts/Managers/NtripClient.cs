@@ -2,39 +2,41 @@ using UnityEngine;
 using System;
 using System.Net.Sockets;
 using System.Threading;
+using System.Collections.Concurrent;
 
 public class NtripClient : MonoBehaviour, IDisposable
 {
     [Header("NTRIP Settings")]
-    [Tooltip("NTRIPサーバーのアドレス")]
     public string server = "ntrip.server.com";
-
-    [Tooltip("NTRIPサーバーのポート")]
     public int port = 2101;
-
-    [Tooltip("マウントポイント")]
     public string mountPoint = "RTCM32";
-
-    [Tooltip("ユーザー名")]
     public string username = "yourUsername";
-
-    [Tooltip("パスワード")]
     public string password = "yourPassword";
 
     public delegate void NMEADataReceivedHandler(string nmeaData);
     public event NMEADataReceivedHandler OnNMEADataReceived;
-
-    public delegate void RTCMDataReceivedHandler(byte[] rtcmData);
-    public event RTCMDataReceivedHandler OnRTCMDataReceived;
 
     private TcpClient client;
     private NetworkStream stream;
     private Thread readThread;
     private bool isRunning = false;
 
+    // スレッド間で共有するキュー
+    private ConcurrentQueue<string> nmeaDataQueue = new ConcurrentQueue<string>();
+
     void Start()
     {
         StartNtripClient();
+    }
+
+    void Update()
+    {
+        // メインスレッドで NMEA データを処理
+        while (nmeaDataQueue.TryDequeue(out string nmeaData))
+        {
+            Debug.Log($"Received NMEA Data: {nmeaData}");
+            OnNMEADataReceived?.Invoke(nmeaData);
+        }
     }
 
     void OnDestroy()
@@ -42,9 +44,6 @@ public class NtripClient : MonoBehaviour, IDisposable
         Dispose();
     }
 
-    /// <summary>
-    /// NTRIPクライアントを開始します。
-    /// </summary>
     public void StartNtripClient()
     {
         try
@@ -73,9 +72,6 @@ public class NtripClient : MonoBehaviour, IDisposable
         }
     }
 
-    /// <summary>
-    /// NTRIPサーバーからデータを読み取ります。
-    /// </summary>
     private void ReadData()
     {
         try
@@ -89,35 +85,19 @@ public class NtripClient : MonoBehaviour, IDisposable
 
                     if (bytesRead > 0)
                     {
-                        string nmeaSentence = System.Text.Encoding.ASCII.GetString(buffer, 0, bytesRead);
-
-                        if (nmeaSentence.StartsWith("$"))
-                        {
-                            OnNMEADataReceived?.Invoke(nmeaSentence);
-                        }
-                        else
-                        {
-                            byte[] rtcmData = new byte[bytesRead];
-                            Array.Copy(buffer, rtcmData, bytesRead);
-                            OnRTCMDataReceived?.Invoke(rtcmData);
-                        }
+                        string receivedData = System.Text.Encoding.ASCII.GetString(buffer, 0, bytesRead);
+                        Debug.Log($"Ntrip Data Received: {receivedData}");
                     }
-                }
-                else
-                {
-                    Thread.Sleep(10);
                 }
             }
         }
         catch (Exception e)
         {
-            Debug.LogError($"NTRIPクライアントの読み取りエラー: {e.Message}");
+            Debug.LogError($"Ntrip Client Read Error: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// NTRIPクライアントを停止し、リソースを解放します。
-    /// </summary>
+
     public void Dispose()
     {
         isRunning = false;

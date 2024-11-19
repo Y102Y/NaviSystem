@@ -1,6 +1,6 @@
 AllowDebugScene
 
-ArrowCheckPoint:プレハブ
+Arrow, Gate, Line:プレハブ
 
 １．オブジェクト一覧
 
@@ -29,7 +29,7 @@ DebugRouteManager.cs
 →「ObjectManager」に「DebugObjectManager」オブジェクトをアタッチ
 →「Prefabs」に「AllowCheckpoint」プレハブをアタッチ
 →「Prefabs」に「Gate」プレハブをアタッチ
-→「NavigationMode」で使用するナビゲーションタイプを選択「Allow，Gate」
+→「NavigationMode」で使用するナビゲーションタイプを選択「Allow，Gate, Line」
 
 //説明欄
 Gate：チェックポイントで曲がる方向を見失わないように「前方ゲート」「後方ゲート」作成

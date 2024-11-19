@@ -1,30 +1,19 @@
 using UnityEngine;
-using System;
 using System.IO.Ports;
 using System.Threading;
-using System.Collections.Generic;
 
 public class SerialPortManager : MonoBehaviour
 {
     [Header("Serial Port Settings")]
-    public string portName = "COM3"; // シリアルポート名
-    public int baudRate = 9600; // ボーレート
+    public string portName = "COM3"; // デバイスのCOMポート番号
+    public int baudRate = 9600;      // ボーレート（DG-PRO1RWSの場合は通常9600）
 
-    private SerialPort serialPort_;
-    private Thread readThread_;
-    private bool isRunning_ = false;
+    private SerialPort serialPort;
+    private Thread readThread;
+    private bool isRunning = false;
 
-    // データ受信イベントの定義
-    public event Action<string> OnNMEADataReceived;
-
-    private Queue<string> dataQueue = new Queue<string>();
-    private object queueLock = new object();
-
-    // 最後にNMEAデータを処理した時間
-    private DateTime lastProcessedTime = DateTime.MinValue;
-
-    // 受信間隔（秒）
-    public float receiveInterval = 1.0f;
+    public delegate void NMEADataReceivedHandler(string data);
+    public event NMEADataReceivedHandler OnNMEADataReceived;
 
     void Start()
     {
@@ -35,17 +24,18 @@ public class SerialPortManager : MonoBehaviour
     {
         try
         {
-            serialPort_ = new SerialPort(portName, baudRate);
-            serialPort_.ReadTimeout = 1000; // タイムアウト設定（ミリ秒）
-            serialPort_.Open();
+            serialPort = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One);
+            serialPort.ReadTimeout = 1000; // 1秒のタイムアウト
+            serialPort.Open();
+            isRunning = true;
 
-            isRunning_ = true;
-            readThread_ = new Thread(ReadSerialPort);
-            readThread_.Start();
+            // シリアル読み取りスレッドを開始
+            readThread = new Thread(ReadSerialPort);
+            readThread.Start();
 
             Debug.Log($"SerialPort {portName} opened successfully.");
         }
-        catch (Exception e)
+        catch (System.Exception e)
         {
             Debug.LogError($"Failed to open SerialPort: {e.Message}");
         }
@@ -53,72 +43,67 @@ public class SerialPortManager : MonoBehaviour
 
     private void ReadSerialPort()
     {
-        while (isRunning_ && serialPort_ != null && serialPort_.IsOpen)
+        try
         {
-            try
+            while (isRunning && serialPort != null && serialPort.IsOpen)
             {
-                string line = serialPort_.ReadLine();
-                if (!string.IsNullOrEmpty(line))
+                try
                 {
-                    lock (queueLock)
+                    // シリアルポートから1行を読み取る
+                    string line = serialPort.ReadLine();
+                    if (!string.IsNullOrEmpty(line))
                     {
-                        dataQueue.Enqueue(line);
+                        // NmeaParserでデータをフィルタリング
+                        var parsedData = NmeaParser.Parse(line);
+
+                        if (parsedData != null)
+                        {
+                            // 有効なGGAデータの場合のみログを表示
+                            Debug.Log($"Valid GGA Data: Latitude={parsedData.Latitude}, Longitude={parsedData.Longitude}, Altitude={parsedData.Altitude}");
+                            OnNMEADataReceived?.Invoke(line); // イベントをトリガー
+                        }
+                        else if (line.StartsWith("$"))
+                        {
+                            // GGA以外のNMEAセンテンスは無視してログ出力
+                            Debug.Log($"Non-relevant NMEA sentence received: {line}");
+                        }
+                        else
+                        {
+                            // 無効なデータ
+                            Debug.LogWarning($"Invalid NMEA sentence: {line}");
+                        }
                     }
                 }
-            }
-            catch (TimeoutException)
-            {
-                // タイムアウトエラーは無視
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"Error reading from SerialPort: {e.Message}");
-                isRunning_ = false;
-            }
-        }
-    }
-
-    void Update()
-    {
-        lock (queueLock)
-        {
-            while (dataQueue.Count > 0)
-            {
-                // キューからデータを取得
-                string data = dataQueue.Dequeue();
-
-                // 現在の時間を取得
-                DateTime currentTime = DateTime.Now;
-
-                // 前回の処理から指定間隔が経過しているか確認
-                if ((currentTime - lastProcessedTime).TotalSeconds >= receiveInterval)
+                catch (TimeoutException)
                 {
-                    lastProcessedTime = currentTime; // 最後の処理時間を更新
-                    OnNMEADataReceived?.Invoke(data);
+                    // タイムアウトの場合は無視
                 }
             }
         }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"Error reading SerialPort: {e.Message}");
+        }
     }
 
-    public void Dispose()
+
+    private void OnDestroy()
     {
-        isRunning_ = false;
-
-        if (readThread_ != null && readThread_.IsAlive)
-        {
-            readThread_.Join();
-        }
-
-        if (serialPort_ != null && serialPort_.IsOpen)
-        {
-            serialPort_.Close();
-        }
-
-        Debug.Log("SerialPort closed and disposed.");
+        CloseSerialPort();
     }
 
-    void OnDestroy()
+    private void CloseSerialPort()
     {
-        Dispose();
+        isRunning = false;
+        if (readThread != null && readThread.IsAlive)
+        {
+            readThread.Join();
+        }
+
+        if (serialPort != null && serialPort.IsOpen)
+        {
+            serialPort.Close();
+            Debug.Log($"SerialPort {portName} closed.");
+        }
     }
 }

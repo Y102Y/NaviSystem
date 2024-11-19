@@ -26,6 +26,21 @@ public class GPSManager : MonoBehaviour
 
     private void OnNMEADataReceived(string nmeaData)
     {
+        // 無効なデータをスキップ
+        if (string.IsNullOrWhiteSpace(nmeaData) || !nmeaData.StartsWith("$"))
+        {
+            Debug.LogWarning("Invalid NMEA data received, skipping...");
+            return;
+        }
+
+        // 必要なセンテンス（GGAまたはRMC）以外をスキップ
+        if (!(nmeaData.StartsWith("$GNGGA") || nmeaData.StartsWith("$GNRMC")))
+        {
+            Debug.Log($"Non-relevant NMEA sentence received: {nmeaData}");
+            return;
+        }
+
+        // NMEAデータを解析
         var parsedData = NmeaParser.Parse(nmeaData);
 
         if (parsedData != null)
@@ -34,9 +49,14 @@ public class GPSManager : MonoBehaviour
             longitude = parsedData.Longitude;
             altitude = parsedData.Altitude;
 
-            Debug.Log($"Latitude: {latitude}, Longitude: {longitude}, Altitude: {altitude}");
+            Debug.Log($"Valid NMEA Data Parsed - Latitude: {latitude}, Longitude: {longitude}, Altitude: {altitude}");
+        }
+        else
+        {
+            Debug.LogWarning($"Failed to parse NMEA sentence: {nmeaData}");
         }
     }
+
 
     void Update()
     {
