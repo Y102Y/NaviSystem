@@ -1,37 +1,51 @@
-// Assets/Scripts/Managers/NtripClient.cs
-
 using UnityEngine;
 using System;
 using System.Net.Sockets;
 using System.Threading;
 
-public class NtripClient : IDisposable
+public class NtripClient : MonoBehaviour, IDisposable
 {
-    private string server;
-    private int port;
-    private string mountPoint;
-    private string username;
-    private string password;
-    private SerialManager serialManager;
+    [Header("NTRIP Settings")]
+    [Tooltip("NTRIPサーバーのアドレス")]
+    public string server = "ntrip.server.com";
+
+    [Tooltip("NTRIPサーバーのポート")]
+    public int port = 2101;
+
+    [Tooltip("マウントポイント")]
+    public string mountPoint = "RTCM32";
+
+    [Tooltip("ユーザー名")]
+    public string username = "yourUsername";
+
+    [Tooltip("パスワード")]
+    public string password = "yourPassword";
+
+    public delegate void NMEADataReceivedHandler(string nmeaData);
+    public event NMEADataReceivedHandler OnNMEADataReceived;
+
+    public delegate void RTCMDataReceivedHandler(byte[] rtcmData);
+    public event RTCMDataReceivedHandler OnRTCMDataReceived;
+
     private TcpClient client;
     private NetworkStream stream;
     private Thread readThread;
     private bool isRunning = false;
 
-    public delegate void RTCMDataReceivedHandler(byte[] data);
-    public event RTCMDataReceivedHandler OnRTCMDataReceived;
-
-    public NtripClient(string server, int port, string mountPoint, string username, string password, SerialManager serialManager)
+    void Start()
     {
-        this.server = server;
-        this.port = port;
-        this.mountPoint = mountPoint;
-        this.username = username;
-        this.password = password;
-        this.serialManager = serialManager;
+        StartNtripClient();
     }
 
-    public void Start()
+    void OnDestroy()
+    {
+        Dispose();
+    }
+
+    /// <summary>
+    /// NTRIPクライアントを開始します。
+    /// </summary>
+    public void StartNtripClient()
     {
         try
         {
@@ -51,14 +65,17 @@ public class NtripClient : IDisposable
             readThread = new Thread(ReadData);
             readThread.Start();
 
-            Logger.LogInfo($"NTRIPクライアントが {server}:{port} に接続しました。");
+            Debug.Log($"NTRIPクライアントが {server}:{port} に接続しました。");
         }
         catch (Exception e)
         {
-            Logger.LogError($"NTRIPクライアントの接続に失敗しました: {e.Message}");
+            Debug.LogError($"NTRIPクライアントの接続に失敗しました: {e.Message}");
         }
     }
 
+    /// <summary>
+    /// NTRIPサーバーからデータを読み取ります。
+    /// </summary>
     private void ReadData()
     {
         try
@@ -69,11 +86,21 @@ public class NtripClient : IDisposable
                 {
                     byte[] buffer = new byte[1024];
                     int bytesRead = stream.Read(buffer, 0, buffer.Length);
+
                     if (bytesRead > 0)
                     {
-                        byte[] rtcmData = new byte[bytesRead];
-                        Array.Copy(buffer, rtcmData, bytesRead);
-                        OnRTCMDataReceived?.Invoke(rtcmData);
+                        string nmeaSentence = System.Text.Encoding.ASCII.GetString(buffer, 0, bytesRead);
+
+                        if (nmeaSentence.StartsWith("$"))
+                        {
+                            OnNMEADataReceived?.Invoke(nmeaSentence);
+                        }
+                        else
+                        {
+                            byte[] rtcmData = new byte[bytesRead];
+                            Array.Copy(buffer, rtcmData, bytesRead);
+                            OnRTCMDataReceived?.Invoke(rtcmData);
+                        }
                     }
                 }
                 else
@@ -84,44 +111,32 @@ public class NtripClient : IDisposable
         }
         catch (Exception e)
         {
-            Logger.LogError($"NTRIPクライアントの読み取りエラー: {e.Message}");
+            Debug.LogError($"NTRIPクライアントの読み取りエラー: {e.Message}");
         }
     }
 
-    public void SendRTCMData(byte[] data)
-    {
-        if (stream != null && stream.CanWrite)
-        {
-            try
-            {
-                stream.Write(data, 0, data.Length);
-                Logger.LogDebug($"NTRIPクライアントにRTCMデータを送信: {data.Length} bytes");
-            }
-            catch (Exception e)
-            {
-                Logger.LogError($"NTRIPクライアントへのRTCMデータ送信エラー: {e.Message}");
-            }
-        }
-        else
-        {
-            Logger.LogWarning("NTRIPクライアントのストリームが書き込み可能ではありません。");
-        }
-    }
-
+    /// <summary>
+    /// NTRIPクライアントを停止し、リソースを解放します。
+    /// </summary>
     public void Dispose()
     {
         isRunning = false;
+
         if (readThread != null && readThread.IsAlive)
         {
             readThread.Join();
         }
+
         if (stream != null)
         {
             stream.Close();
         }
+
         if (client != null && client.Connected)
         {
             client.Close();
         }
+
+        Debug.Log("NTRIPクライアントが停止しました。");
     }
 }
