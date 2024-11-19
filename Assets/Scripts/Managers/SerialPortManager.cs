@@ -53,30 +53,17 @@ public class SerialPortManager : MonoBehaviour
                     string line = serialPort.ReadLine();
                     if (!string.IsNullOrEmpty(line))
                     {
-                        // NmeaParserでデータをフィルタリング
-                        var parsedData = NmeaParser.Parse(line);
-
-                        if (parsedData != null)
+                        // GGAセンテンス以外を完全に排除
+                        if (line.StartsWith("$GPGGA") || line.StartsWith("$GNGGA"))
                         {
-                            // 有効なGGAデータの場合のみログを表示
-                            Debug.Log($"Valid GGA Data: Latitude={parsedData.Latitude}, Longitude={parsedData.Longitude}, Altitude={parsedData.Altitude}");
+                            Debug.Log($"Valid GGA Data Received: {line}");
                             OnNMEADataReceived?.Invoke(line); // イベントをトリガー
-                        }
-                        else if (line.StartsWith("$"))
-                        {
-                            // GGA以外のNMEAセンテンスは無視してログ出力
-                            Debug.Log($"Non-relevant NMEA sentence received: {line}");
-                        }
-                        else
-                        {
-                            // 無効なデータ
-                            Debug.LogWarning($"Invalid NMEA sentence: {line}");
                         }
                     }
                 }
                 catch (TimeoutException)
                 {
-                    // タイムアウトの場合は無視
+                    // タイムアウトは無視
                 }
             }
         }
@@ -85,7 +72,6 @@ public class SerialPortManager : MonoBehaviour
             Debug.LogError($"Error reading SerialPort: {e.Message}");
         }
     }
-
 
     private void OnDestroy()
     {

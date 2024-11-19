@@ -33,10 +33,10 @@ public class GPSManager : MonoBehaviour
             return;
         }
 
-        // 必要なセンテンス（GGAまたはRMC）以外をスキップ
-        if (!(nmeaData.StartsWith("$GNGGA") || nmeaData.StartsWith("$GNRMC")))
+        // GGAセンテンスのみ処理
+        if (!nmeaData.StartsWith("$GNGGA") && !nmeaData.StartsWith("$GPGGA"))
         {
-            Debug.Log($"Non-relevant NMEA sentence received: {nmeaData}");
+            // 他のセンテンスのログを省略
             return;
         }
 
@@ -49,14 +49,13 @@ public class GPSManager : MonoBehaviour
             longitude = parsedData.Longitude;
             altitude = parsedData.Altitude;
 
-            Debug.Log($"Valid NMEA Data Parsed - Latitude: {latitude}, Longitude: {longitude}, Altitude: {altitude}");
+            Debug.Log($"Valid GGA Data Parsed - Latitude: {latitude}, Longitude: {longitude}, Altitude: {altitude}");
         }
         else
         {
-            Debug.LogWarning($"Failed to parse NMEA sentence: {nmeaData}");
+            Debug.LogWarning($"Failed to parse GGA sentence: {nmeaData}");
         }
     }
-
 
     void Update()
     {
