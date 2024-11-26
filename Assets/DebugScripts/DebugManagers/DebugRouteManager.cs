@@ -23,10 +23,6 @@ public class DebugRouteManager : MonoBehaviour
     [Tooltip("DebugObjectManagerへの参照")]
     public DebugObjectManager objectManager;
 
-    [Header("Navigation Settings")]
-    [Tooltip("最大可視距離（メートル）")]
-    public float maxVisibleDistance = 10.0f;
-
     [Header("Prefabs")]
     [Tooltip("矢印（Arrow）プレハブ")]
     public GameObject arrowPrefab;
@@ -528,7 +524,10 @@ public class DebugRouteManager : MonoBehaviour
     /// <summary>
     /// 緯度経度をUnityの座標系に変換するメソッド
     /// </summary>
-    private Vector3 ConvertGeographicToUnity(double latitude, double longitude, double originLat, double originLon, float yOffset = 0f)
+    /// <summary>
+/// 緯度経度をUnityの座標系に変換するメソッド
+/// </summary>
+    public Vector3 ConvertGeographicToUnity(double latitude, double longitude, double originLat, double originLon, float yOffset = 0f)
     {
         const double EarthRadius = 6378137.0; // 地球の半径（メートル）
 
@@ -540,6 +539,7 @@ public class DebugRouteManager : MonoBehaviour
 
         return new Vector3((float)x, yOffset, (float)z);
     }
+
 
     /// <summary>
     /// インスタンス化したチェックポイントの総数を取得するメソッド
@@ -629,18 +629,6 @@ public class DebugRouteManager : MonoBehaviour
             }
 
             GameObject arrow = checkpointTransform.GetChild(0).gameObject;
-
-            if (distance > maxVisibleDistance)
-            {
-                Vector3 direction = (checkpointPosition - userPosition).normalized;
-                arrow.transform.position = userPosition + direction * maxVisibleDistance;
-                arrow.transform.position += Vector3.up * arrowYOffset; // Yオフセット追加
-            }
-            else
-            {
-                arrow.transform.position = checkpointPosition;
-                arrow.transform.position += Vector3.up * arrowYOffset; // Yオフセット追加
-            }
 
             arrow.transform.LookAt(userPosition);
 
