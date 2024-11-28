@@ -212,13 +212,13 @@ public class DebugRouteManager : MonoBehaviour
         Vector3 arrowPosition = unityPosition;
         arrowPosition.y += arrowYOffset; // オフセットを追加
 
-        GameObject arrowInstance = Instantiate(arrowPrefab, unityPosition, Quaternion.identity, null);
+        GameObject arrowInstance = Instantiate(arrowPrefab, arrowPosition, Quaternion.identity, null);
         arrowInstance.name = $"{route.routeName}_Arrow_Checkpoint_{index + 1}";
 
         Debug.Log($"Arrow instantiated at position: {arrowPosition}");
 
         // 矢印のアクティブ状態を設定
-        arrowInstance.SetActive(showAllArrows || index == 0);
+        arrowInstance.SetActive(index != 0);
 
         // チェックポイントの向きを設定
         SetCheckpointRotation(route, index, arrowInstance, unityPosition);
