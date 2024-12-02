@@ -1,6 +1,8 @@
 using System.IO.Ports;
 using UnityEngine;
 using TMPro;
+using System.Net.Sockets;
+using System.Text;
 
 public class GNSSReceiver : MonoBehaviour
 {
@@ -11,14 +13,30 @@ public class GNSSReceiver : MonoBehaviour
 
     // プレイヤーのTransformと移動設定
     public Transform playerTransform;
+    public Transform cameraTransform;
     public float smoothness = 0.1f; // プレイヤーの移動の滑らかさ
 
     private Vector3 targetPosition;
+    private Quaternion targetRotation;
 
     // 緯度と経度を表示するUI要素
     public TextMeshProUGUI latitudeText; // 緯度を表示するTextMeshProのUI
     public TextMeshProUGUI longitudeText; // 経度を表示するTextMeshProのUI
     public TextMeshProUGUI fixQualityText; // 位置解の種類を表示するTextMeshProのUI
+    public TextMeshProUGUI headingText; // 方位角を表示するTextMeshProのUI
+
+    // 原点（基準点）の緯度経度
+    private readonly double originLatitude = 35.665573533488;
+    private readonly double originLongitude = 140.071299281814;
+
+    // NTRIP クライアントの設定
+    public string casterAddress = "ntrip.server.com";
+    public int casterPort = 2101;
+    public string mountPoint = "MOUNTPOINT";
+    public string username = "USERNAME";
+    public string password = "PASSWORD";
+    private TcpClient ntripClient;
+    private NetworkStream ntripStream;
     
     void Start()
     {
@@ -37,6 +55,10 @@ public class GNSSReceiver : MonoBehaviour
         }
         // 初期のターゲット位置をプレイヤーの現在位置に設定
         targetPosition = playerTransform.position;
+        targetRotation = playerTransform.rotation;
+
+        // NTRIPサーバーへの接続を開始
+        ConnectToNTRIPCaster();
     }
 
     void Update()
@@ -51,6 +73,7 @@ public class GNSSReceiver : MonoBehaviour
                 // 行が "$GPRMC" または "$GNRMC" で始まるか確認（RMCメッセージかどうか）
                 if (line.StartsWith("$GPRMC") || line.StartsWith("$GNRMC"))
                 {
+                    Debug.Log("RMCメッセージを受信しました: " + line);
                     string[] data = line.Split(',');
                     if (data[2] == "A") // データが有効かどうか確認（ステータスフィールドが "A"）
                     {
@@ -58,12 +81,19 @@ public class GNSSReceiver : MonoBehaviour
                         double latitude = ParseLatitude(data[3], data[4]);
                         double longitude = ParseLongitude(data[5], data[6]);
 
-                        // 解析した緯度と経度に基づいてターゲット位置を更新
-                        targetPosition = new Vector3((float)longitude, playerTransform.position.y, (float)latitude);
+                        // 解析した緯度と経度に基づいてUnityの座標系に変換
+                        targetPosition = ConvertToUnityCoordinates(latitude, longitude);
 
                         // 現在の緯度と経度をUIテキストに更新
-                        if (latitudeText != null) latitudeText.text = "Latitude: " + latitude;
-                        if (longitudeText != null) longitudeText.text = "Longitude: " + longitude;
+                        UpdateLocationUI(latitude, longitude);
+
+                        // ヘディングを解析して反映
+                        if (!string.IsNullOrEmpty(data[8])) // ヘディング情報が含まれているか確認
+                        {
+                            float heading = float.Parse(data[8]);
+                            targetRotation = Quaternion.Euler(0, heading, 0);
+                            if (headingText != null) headingText.text = "Heading: " + heading + "°";
+                        }
                     }
                 }
                 // 行が "$GNGGA" で始まるか確認（GGAメッセージかどうか）
@@ -76,12 +106,11 @@ public class GNSSReceiver : MonoBehaviour
                         double latitude = ParseLatitude(data[2], data[3]);
                         double longitude = ParseLongitude(data[4], data[5]);
 
-                        // 解析した緯度と経度に基づいてターゲット位置を更新
-                        targetPosition = new Vector3((float)longitude, playerTransform.position.y, (float)latitude);
+                        // 解析した緯度と経度に基づいてUnityの座標系に変換
+                        targetPosition = ConvertToUnityCoordinates(latitude, longitude);
 
                         // 現在の緯度、経度をUIテキストに更新
-                        if (latitudeText != null) latitudeText.text = "Latitude: " + latitude;
-                        if (longitudeText != null) longitudeText.text = "Longitude: " + longitude;
+                        UpdateLocationUI(latitude, longitude);
 
                         // 位置解の種類をUIテキストに更新
                         if (fixQualityText != null)
@@ -99,10 +128,82 @@ public class GNSSReceiver : MonoBehaviour
             }
         }
 
+        // NTRIPストリームが利用可能であればRTCMデータを読み取る
+        if (ntripStream != null && ntripStream.DataAvailable)
+        {
+            try
+            {
+                byte[] buffer = new byte[1024];
+                int bytesRead = ntripStream.Read(buffer, 0, buffer.Length);
+                if (bytesRead > 0)
+                {
+                    ApplyRTCMToGNSS(buffer, bytesRead);
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning("NTRIPデータの読み取りに失敗しました: " + e.Message);
+            }
+        }
+
         // プレイヤーの位置をターゲット位置に滑らかに更新
         if (playerTransform != null)
         {
             playerTransform.position = Vector3.Lerp(playerTransform.position, targetPosition, smoothness);
+            playerTransform.rotation = Quaternion.Lerp(playerTransform.rotation, targetRotation, smoothness);
+        }
+
+        // カメラの回転もプレイヤーの回転に合わせて更新（必要に応じて）
+        if (cameraTransform != null)
+        {
+            cameraTransform.rotation = Quaternion.Lerp(cameraTransform.rotation, targetRotation, smoothness);
+        }
+    }
+
+    void ConnectToNTRIPCaster()
+    {
+        try
+        {
+            ntripClient = new TcpClient(casterAddress, casterPort);
+            ntripStream = ntripClient.GetStream();
+
+            string request = $"GET /{mountPoint} HTTP/1.0\r\n" +
+                             $"User-Agent: NTRIP UnityClient\r\n" +
+                             $"Authorization: Basic {System.Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{password}"))}\r\n" +
+                             $"\r\n";
+
+            byte[] requestBytes = Encoding.ASCII.GetBytes(request);
+            ntripStream.Write(requestBytes, 0, requestBytes.Length);
+            Debug.Log("NTRIPサーバーに接続しました。");
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError("NTRIPサーバーへの接続に失敗しました: " + e.Message);
+        }
+    }
+
+    void ApplyRTCMToGNSS(byte[] rtcmData, int length)
+    {
+        if (serialPort != null && serialPort.IsOpen)
+        {
+            serialPort.Write(rtcmData, 0, length);
+            Debug.Log("RTCMデータをGNSS受信機に送信しました。");
+        }
+    }
+
+    // 緯度と経度を更新するUIのメソッド
+    void UpdateLocationUI(double latitude, double longitude)
+    {
+        if (latitudeText != null)
+        {
+            latitudeText.text = "Latitude: " + latitude;
+            latitudeText.ForceMeshUpdate(); // テキストの即時更新を強制
+        }
+
+        if (longitudeText != null)
+        {
+            longitudeText.text = "Longitude: " + longitude;
+            longitudeText.ForceMeshUpdate(); // テキストの即時更新を強制
         }
     }
 
@@ -126,6 +227,23 @@ public class GNSSReceiver : MonoBehaviour
         double longitude = degrees + minutes;
         // 方向が西の場合は負の値を返す
         return (direction == "W") ? -longitude : longitude;
+    }
+
+    // 緯度経度をUnityの座標系に変換
+    Vector3 ConvertToUnityCoordinates(double latitude, double longitude)
+    {
+        // 緯度・経度の差分を計算
+        double deltaLatitude = latitude - originLatitude;
+        double deltaLongitude = longitude - originLongitude;
+
+        // メートル単位に変換（おおよその地球の円周から計算）
+        double metersPerDegreeLatitude = 111320.0;
+        double metersPerDegreeLongitude = 111320.0 * Mathf.Cos((float)(originLatitude * Mathf.Deg2Rad));
+
+        float x = (float)(deltaLongitude * metersPerDegreeLongitude);
+        float z = (float)(deltaLatitude * metersPerDegreeLatitude);
+
+        return new Vector3(x, playerTransform.position.y, z);
     }
 
     // 位置解の種類を取得
@@ -153,6 +271,11 @@ public class GNSSReceiver : MonoBehaviour
         {
             serialPort.Close();
             Debug.Log("シリアルポートを閉じました。");
+        }
+        if (ntripClient != null)
+        {
+            ntripClient.Close();
+            Debug.Log("Ntrip接続を閉じました。");
         }
     }
 }
