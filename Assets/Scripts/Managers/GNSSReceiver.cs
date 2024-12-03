@@ -8,7 +8,7 @@ public class GNSSReceiver : MonoBehaviour
 {
     // シリアルポートの設定
     public string portName = "COM3";
-    public int baudRate = 9600;
+    public int baudRate = 115200;
     private SerialPort serialPort;
 
     // プレイヤーのTransformと移動設定
@@ -28,15 +28,6 @@ public class GNSSReceiver : MonoBehaviour
     // 原点（基準点）の緯度経度
     private readonly double originLatitude = 35.665573533488;
     private readonly double originLongitude = 140.071299281814;
-
-    // NTRIP クライアントの設定
-    public string casterAddress = "ntrip.server.com";
-    public int casterPort = 2101;
-    public string mountPoint = "MOUNTPOINT";
-    public string username = "USERNAME";
-    public string password = "PASSWORD";
-    private TcpClient ntripClient;
-    private NetworkStream ntripStream;
     
     void Start()
     {
@@ -56,9 +47,6 @@ public class GNSSReceiver : MonoBehaviour
         // 初期のターゲット位置をプレイヤーの現在位置に設定
         targetPosition = playerTransform.position;
         targetRotation = playerTransform.rotation;
-
-        // NTRIPサーバーへの接続を開始
-        ConnectToNTRIPCaster();
     }
 
     void Update()
@@ -70,6 +58,8 @@ public class GNSSReceiver : MonoBehaviour
             {
                 // シリアルポートから1行のデータを読み取る
                 string line = serialPort.ReadLine();
+                Debug.Log("受信したデータ: " + line);
+
                 // 行が "$GPRMC" または "$GNRMC" で始まるか確認（RMCメッセージかどうか）
                 if (line.StartsWith("$GPRMC") || line.StartsWith("$GNRMC"))
                 {
@@ -128,23 +118,6 @@ public class GNSSReceiver : MonoBehaviour
             }
         }
 
-        // NTRIPストリームが利用可能であればRTCMデータを読み取る
-        if (ntripStream != null && ntripStream.DataAvailable)
-        {
-            try
-            {
-                byte[] buffer = new byte[1024];
-                int bytesRead = ntripStream.Read(buffer, 0, buffer.Length);
-                if (bytesRead > 0)
-                {
-                    ApplyRTCMToGNSS(buffer, bytesRead);
-                }
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogWarning("NTRIPデータの読み取りに失敗しました: " + e.Message);
-            }
-        }
 
         // プレイヤーの位置をターゲット位置に滑らかに更新
         if (playerTransform != null)
@@ -157,28 +130,6 @@ public class GNSSReceiver : MonoBehaviour
         if (cameraTransform != null)
         {
             cameraTransform.rotation = Quaternion.Lerp(cameraTransform.rotation, targetRotation, smoothness);
-        }
-    }
-
-    void ConnectToNTRIPCaster()
-    {
-        try
-        {
-            ntripClient = new TcpClient(casterAddress, casterPort);
-            ntripStream = ntripClient.GetStream();
-
-            string request = $"GET /{mountPoint} HTTP/1.0\r\n" +
-                             $"User-Agent: NTRIP UnityClient\r\n" +
-                             $"Authorization: Basic {System.Convert.ToBase64String(Encoding.ASCII.GetBytes($"{username}:{password}"))}\r\n" +
-                             $"\r\n";
-
-            byte[] requestBytes = Encoding.ASCII.GetBytes(request);
-            ntripStream.Write(requestBytes, 0, requestBytes.Length);
-            Debug.Log("NTRIPサーバーに接続しました。");
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogError("NTRIPサーバーへの接続に失敗しました: " + e.Message);
         }
     }
 
@@ -271,11 +222,6 @@ public class GNSSReceiver : MonoBehaviour
         {
             serialPort.Close();
             Debug.Log("シリアルポートを閉じました。");
-        }
-        if (ntripClient != null)
-        {
-            ntripClient.Close();
-            Debug.Log("Ntrip接続を閉じました。");
         }
     }
 }
