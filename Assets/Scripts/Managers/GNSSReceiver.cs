@@ -1,7 +1,6 @@
 using System.IO.Ports;
 using UnityEngine;
 using TMPro;
-using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -19,20 +18,21 @@ public class GNSSReceiver : MonoBehaviour
     public float smoothness = 0.1f; // プレイヤーの移動の滑らかさ
 
     private Vector3 targetPosition;
-    private Quaternion targetRotation;
 
     // 緯度と経度を表示するUI要素
     public TextMeshProUGUI latitudeText; // 緯度を表示するTextMeshProのUI
     public TextMeshProUGUI longitudeText; // 経度を表示するTextMeshProのUI
     public TextMeshProUGUI fixQualityText; // 位置解の種類を表示するTextMeshProのUI
-    public TextMeshProUGUI headingText; // 方位角を表示するTextMeshProのUI
+    public TextMeshProUGUI azimuthText; // 方位角を表示するTextMeshProのUI
+    public TextMeshProUGUI pitchText; // ピッチを表示するTextMeshProのUI
+    public TextMeshProUGUI rollText; // ロールを表示するTextMeshProのUI
 
     // 原点（基準点）の緯度経度
     private readonly double originLatitude = 35.665573533488;
     private readonly double originLongitude = 140.071299281814;
 
     // NMEAメッセージの正規表現パターン
-    private readonly Regex nmeaRegex = new Regex(@"^\$(GNRMC|GNGGA),.*\*[0-9A-Fa-f]{2}$");
+    private readonly Regex nmeaRegex = new Regex(@"^\$(GNGGA),.*\*[0-9A-Fa-f]{2}$");
     
     void Start()
     {
@@ -51,11 +51,11 @@ public class GNSSReceiver : MonoBehaviour
         }
         // 初期のターゲット位置をプレイヤーの現在位置に設定
         targetPosition = playerTransform.position;
-        targetRotation = playerTransform.rotation;
     }
 
     void Update()
     {
+        UpdateCameraOrientation();
         // シリアルポートが開いているか確認
         if (serialPort != null && serialPort.IsOpen)
         {
@@ -72,7 +72,7 @@ public class GNSSReceiver : MonoBehaviour
                         // NMEAメッセージの形式を確認
                         if (nmeaRegex.IsMatch(line) && ValidateChecksum(line))
                         {
-                            Debug.Log("受信したデータ: " + line);
+                            // Debug.Log("受信したデータ: " + line);
                             ProcessNMEALine(line);
                         }
                         else
@@ -97,13 +97,6 @@ public class GNSSReceiver : MonoBehaviour
         if (playerTransform != null)
         {
             playerTransform.position = Vector3.Lerp(playerTransform.position, targetPosition, smoothness);
-            playerTransform.rotation = Quaternion.Lerp(playerTransform.rotation, targetRotation, smoothness);
-        }
-
-        // カメラの回転もプレイヤーの回転に合わせて更新（必要に応じて）
-        if (cameraTransform != null)
-        {
-            cameraTransform.rotation = Quaternion.Lerp(cameraTransform.rotation, targetRotation, smoothness);
         }
     }
 
@@ -133,34 +126,8 @@ public class GNSSReceiver : MonoBehaviour
 
     void ProcessNMEALine(string line)
     {
-        // 行が "$GPRMC" または "$GNRMC" で始まるか確認（RMCメッセージかどうか）
-        if (line.StartsWith("$GPRMC") || line.StartsWith("$GNRMC"))
-        {
-            Debug.Log("RMCメッセージを受信しました: " + line);
-            string[] data = line.Split(',');
-            if (data[2] == "A") // データが有効かどうか確認（ステータスフィールドが "A"）
-            {
-                // RMCメッセージから緯度と経度を解析
-                double latitude = ParseLatitude(data[3], data[4]);
-                double longitude = ParseLongitude(data[5], data[6]);
-
-                // 解析した緯度と経度に基づいてUnityの座標系に変換
-                targetPosition = ConvertToUnityCoordinates(latitude, longitude);
-
-                // 現在の緯度と経度をUIテキストに更新
-                UpdateLocationUI(latitude, longitude);
-
-                // ヘディングを解析して反映
-                if (!string.IsNullOrEmpty(data[8])) // ヘディング情報が含まれているか確認
-                {
-                    float heading = float.Parse(data[8]);
-                    targetRotation = Quaternion.Euler(0, heading, 0);
-                    if (headingText != null) headingText.text = "Heading: " + heading + "°";
-                }
-            }
-        }
         // 行が "$GNGGA" で始まるか確認（GGAメッセージかどうか）
-        else if (line.StartsWith("$GNGGA"))
+        if (line.StartsWith("$GNGGA"))
         {
             string[] data = line.Split(',');
             if (data[6] != "0") // データが有効かどうか確認（品質フィールドが "0" でない）
@@ -255,6 +222,38 @@ public class GNSSReceiver : MonoBehaviour
                 return "RTK Float";
             default:
                 return "No Fix";
+        }
+    }
+
+    // カメラの方位角、ピッチ、ロールを更新
+    void UpdateCameraOrientation()
+    {
+        Debug.Log("AAAAAAAA");
+        float pitch = UnityTcpServer.pitch;
+        float azimuth = UnityTcpServer.azimuth;
+        float roll = UnityTcpServer.roll;
+
+        if (cameraTransform != null)
+        {
+            Quaternion targetRotation = Quaternion.Euler(pitch, azimuth, roll);
+            cameraTransform.rotation = Quaternion.Lerp(cameraTransform.rotation, targetRotation, smoothness);
+        }
+
+        // 方位角、ピッチ、ロールをUIに表示
+        if (azimuthText != null)
+        {
+            azimuthText.text = "Azimuth: " + azimuth + "°";
+            azimuthText.ForceMeshUpdate();
+        }
+        if (pitchText != null)
+        {
+            pitchText.text = "Pitch: " + pitch + "°";
+            pitchText.ForceMeshUpdate();
+        }
+        if (rollText != null)
+        {
+            rollText.text = "Roll: " + roll + "°";
+            rollText.ForceMeshUpdate();
         }
     }
 }
