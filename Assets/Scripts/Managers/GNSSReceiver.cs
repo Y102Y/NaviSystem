@@ -3,6 +3,7 @@ using UnityEngine;
 using TMPro;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.RegularExpressions;
 
 public class GNSSReceiver : MonoBehaviour
 {
@@ -10,6 +11,7 @@ public class GNSSReceiver : MonoBehaviour
     public string portName = "COM3";
     public int baudRate = 115200;
     private SerialPort serialPort;
+    private StringBuilder buffer = new StringBuilder();
 
     // プレイヤーのTransformと移動設定
     public Transform playerTransform;
@@ -28,6 +30,9 @@ public class GNSSReceiver : MonoBehaviour
     // 原点（基準点）の緯度経度
     private readonly double originLatitude = 35.665573533488;
     private readonly double originLongitude = 140.071299281814;
+
+    // NMEAメッセージの正規表現パターン
+    private readonly Regex nmeaRegex = new Regex(@"^\$(GNRMC|GNGGA),.*\*[0-9A-Fa-f]{2}$");
     
     void Start()
     {
@@ -56,58 +61,28 @@ public class GNSSReceiver : MonoBehaviour
         {
             try
             {
-                // シリアルポートから1行のデータを読み取る
-                string line = serialPort.ReadLine();
-                Debug.Log("受信したデータ: " + line);
-
-                // 行が "$GPRMC" または "$GNRMC" で始まるか確認（RMCメッセージかどうか）
-                if (line.StartsWith("$GPRMC") || line.StartsWith("$GNRMC"))
+                while (serialPort.BytesToRead > 0)
                 {
-                    Debug.Log("RMCメッセージを受信しました: " + line);
-                    string[] data = line.Split(',');
-                    if (data[2] == "A") // データが有効かどうか確認（ステータスフィールドが "A"）
+                    char receivedChar = (char)serialPort.ReadChar();
+                    if (receivedChar == '\n')
                     {
-                        // RMCメッセージから緯度と経度を解析
-                        double latitude = ParseLatitude(data[3], data[4]);
-                        double longitude = ParseLongitude(data[5], data[6]);
+                        string line = buffer.ToString().Trim();
+                        buffer.Clear();
 
-                        // 解析した緯度と経度に基づいてUnityの座標系に変換
-                        targetPosition = ConvertToUnityCoordinates(latitude, longitude);
-
-                        // 現在の緯度と経度をUIテキストに更新
-                        UpdateLocationUI(latitude, longitude);
-
-                        // ヘディングを解析して反映
-                        if (!string.IsNullOrEmpty(data[8])) // ヘディング情報が含まれているか確認
+                        // NMEAメッセージの形式を確認
+                        if (nmeaRegex.IsMatch(line) && ValidateChecksum(line))
                         {
-                            float heading = float.Parse(data[8]);
-                            targetRotation = Quaternion.Euler(0, heading, 0);
-                            if (headingText != null) headingText.text = "Heading: " + heading + "°";
+                            Debug.Log("受信したデータ: " + line);
+                            ProcessNMEALine(line);
+                        }
+                        else
+                        {
+                            Debug.LogWarning("無効なNMEAメッセージを破棄しました: " + line);
                         }
                     }
-                }
-                // 行が "$GNGGA" で始まるか確認（GGAメッセージかどうか）
-                else if (line.StartsWith("$GNGGA"))
-                {
-                    string[] data = line.Split(',');
-                    if (data[6] != "0") // データが有効かどうか確認（品質フィールドが "0" でない）
+                    else
                     {
-                        // GGAメッセージから緯度、経度を解析
-                        double latitude = ParseLatitude(data[2], data[3]);
-                        double longitude = ParseLongitude(data[4], data[5]);
-
-                        // 解析した緯度と経度に基づいてUnityの座標系に変換
-                        targetPosition = ConvertToUnityCoordinates(latitude, longitude);
-
-                        // 現在の緯度、経度をUIテキストに更新
-                        UpdateLocationUI(latitude, longitude);
-
-                        // 位置解の種類をUIテキストに更新
-                        if (fixQualityText != null)
-                        {
-                            string fixQuality = GetFixQualityDescription(data[6]);
-                            fixQualityText.text = "Fix Quality: " + fixQuality;
-                        }
+                        buffer.Append(receivedChar);
                     }
                 }
             }
@@ -117,7 +92,6 @@ public class GNSSReceiver : MonoBehaviour
                 Debug.LogWarning("シリアルポートからの読み取りに失敗しました: " + e.Message);
             }
         }
-
 
         // プレイヤーの位置をターゲット位置に滑らかに更新
         if (playerTransform != null)
@@ -133,12 +107,81 @@ public class GNSSReceiver : MonoBehaviour
         }
     }
 
-    void ApplyRTCMToGNSS(byte[] rtcmData, int length)
+    bool ValidateChecksum(string nmeaLine)
     {
-        if (serialPort != null && serialPort.IsOpen)
+        // チェックサムの計算
+        int asteriskIndex = nmeaLine.IndexOf('*');
+        if (asteriskIndex < 0 || asteriskIndex + 2 >= nmeaLine.Length)
         {
-            serialPort.Write(rtcmData, 0, length);
-            Debug.Log("RTCMデータをGNSS受信機に送信しました。");
+            return false;
+        }
+
+        string checksumString = nmeaLine.Substring(asteriskIndex + 1, 2);
+        if (!byte.TryParse(checksumString, System.Globalization.NumberStyles.HexNumber, null, out byte expectedChecksum))
+        {
+            return false;
+        }
+
+        byte calculatedChecksum = 0;
+        for (int i = 1; i < asteriskIndex; i++)
+        {
+            calculatedChecksum ^= (byte)nmeaLine[i];
+        }
+
+        return calculatedChecksum == expectedChecksum;
+    }
+
+    void ProcessNMEALine(string line)
+    {
+        // 行が "$GPRMC" または "$GNRMC" で始まるか確認（RMCメッセージかどうか）
+        if (line.StartsWith("$GPRMC") || line.StartsWith("$GNRMC"))
+        {
+            Debug.Log("RMCメッセージを受信しました: " + line);
+            string[] data = line.Split(',');
+            if (data[2] == "A") // データが有効かどうか確認（ステータスフィールドが "A"）
+            {
+                // RMCメッセージから緯度と経度を解析
+                double latitude = ParseLatitude(data[3], data[4]);
+                double longitude = ParseLongitude(data[5], data[6]);
+
+                // 解析した緯度と経度に基づいてUnityの座標系に変換
+                targetPosition = ConvertToUnityCoordinates(latitude, longitude);
+
+                // 現在の緯度と経度をUIテキストに更新
+                UpdateLocationUI(latitude, longitude);
+
+                // ヘディングを解析して反映
+                if (!string.IsNullOrEmpty(data[8])) // ヘディング情報が含まれているか確認
+                {
+                    float heading = float.Parse(data[8]);
+                    targetRotation = Quaternion.Euler(0, heading, 0);
+                    if (headingText != null) headingText.text = "Heading: " + heading + "°";
+                }
+            }
+        }
+        // 行が "$GNGGA" で始まるか確認（GGAメッセージかどうか）
+        else if (line.StartsWith("$GNGGA"))
+        {
+            string[] data = line.Split(',');
+            if (data[6] != "0") // データが有効かどうか確認（品質フィールドが "0" でない）
+            {
+                // GGAメッセージから緯度、経度を解析
+                double latitude = ParseLatitude(data[2], data[3]);
+                double longitude = ParseLongitude(data[4], data[5]);
+
+                // 解析した緯度と経度に基づいてUnityの座標系に変換
+                targetPosition = ConvertToUnityCoordinates(latitude, longitude);
+
+                // 現在の緯度、経度をUIテキストに更新
+                UpdateLocationUI(latitude, longitude);
+
+                // 位置解の種類をUIテキストに更新
+                if (fixQualityText != null)
+                {
+                    string fixQuality = GetFixQualityDescription(data[6]);
+                    fixQualityText.text = "Fix Quality: " + fixQuality;
+                }
+            }
         }
     }
 
@@ -212,16 +255,6 @@ public class GNSSReceiver : MonoBehaviour
                 return "RTK Float";
             default:
                 return "No Fix";
-        }
-    }
-
-    void OnDestroy()
-    {
-        // シリアルポートが開いている場合は閉じる
-        if (serialPort != null && serialPort.IsOpen)
-        {
-            serialPort.Close();
-            Debug.Log("シリアルポートを閉じました。");
         }
     }
 }
