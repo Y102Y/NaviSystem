@@ -1,17 +1,8 @@
-using System.IO.Ports;
 using UnityEngine;
 using TMPro;
-using System.Text;
-using System.Text.RegularExpressions;
 
 public class GNSSReceiver : MonoBehaviour
 {
-    // シリアルポートの設定
-    public string portName = "COM3";
-    public int baudRate = 115200;
-    private SerialPort serialPort;
-    private StringBuilder buffer = new StringBuilder();
-
     // プレイヤーのTransformと移動設定
     public Transform playerTransform;
     public Transform cameraTransform;
@@ -22,7 +13,6 @@ public class GNSSReceiver : MonoBehaviour
     // 緯度と経度を表示するUI要素
     public TextMeshProUGUI latitudeText; // 緯度を表示するTextMeshProのUI
     public TextMeshProUGUI longitudeText; // 経度を表示するTextMeshProのUI
-    public TextMeshProUGUI fixQualityText; // 位置解の種類を表示するTextMeshProのUI
     public TextMeshProUGUI azimuthText; // 方位角を表示するTextMeshProのUI
     public TextMeshProUGUI pitchText; // ピッチを表示するTextMeshProのUI
     public TextMeshProUGUI rollText; // ロールを表示するTextMeshProのUI
@@ -30,126 +20,49 @@ public class GNSSReceiver : MonoBehaviour
     // 原点（基準点）の緯度経度
     private readonly double originLatitude = 35.665573533488;
     private readonly double originLongitude = 140.071299281814;
-
-    // NMEAメッセージの正規表現パターン
-    private readonly Regex nmeaRegex = new Regex(@"^\$(GNGGA),.*\*[0-9A-Fa-f]{2}$");
     
     void Start()
     {
-        // 指定されたポート名とボーレートでシリアルポートを初期化
-        serialPort = new SerialPort(portName, baudRate);
-        try
-        {
-            // シリアルポートを開く
-            serialPort.Open();
-            Debug.Log("シリアルポートが正常に開かれました。");
-        }
-        catch (System.Exception e)
-        {
-            // シリアルポートが開けない場合はエラーログを出力
-            Debug.LogError("シリアルポートのオープンに失敗しました: " + e.Message);
-        }
-        // 初期のターゲット位置をプレイヤーの現在位置に設定
-        targetPosition = playerTransform.position;
+        // 初期のターゲット位置を(0, 1, 5)に設定
+        targetPosition = new Vector3(0, 1, 5);
+        // Debug.Log("Start targetPosition: " + targetPosition);
     }
 
     void Update()
     {
         UpdateCameraOrientation();
-        // シリアルポートが開いているか確認
-        if (serialPort != null && serialPort.IsOpen)
-        {
-            try
-            {
-                while (serialPort.BytesToRead > 0)
-                {
-                    char receivedChar = (char)serialPort.ReadChar();
-                    if (receivedChar == '\n')
-                    {
-                        string line = buffer.ToString().Trim();
-                        buffer.Clear();
-
-                        // NMEAメッセージの形式を確認
-                        if (nmeaRegex.IsMatch(line) && ValidateChecksum(line))
-                        {
-                            // Debug.Log("受信したデータ: " + line);
-                            ProcessNMEALine(line);
-                        }
-                        else
-                        {
-                            Debug.LogWarning("無効なNMEAメッセージを破棄しました: " + line);
-                        }
-                    }
-                    else
-                    {
-                        buffer.Append(receivedChar);
-                    }
-                }
-            }
-            catch (System.Exception e)
-            {
-                // シリアルポートからの読み取りに失敗した場合は警告ログを出力
-                Debug.LogWarning("シリアルポートからの読み取りに失敗しました: " + e.Message);
-            }
-        }
-
-        // プレイヤーの位置をターゲット位置に滑らかに更新
+        UpdatePos(UnityTcpServer.latitude, UnityTcpServer.longitude);
+        
         if (playerTransform != null)
         {
             playerTransform.position = Vector3.Lerp(playerTransform.position, targetPosition, smoothness);
+            // Debug.Log("Update vector:" + playerTransform.position + targetPosition);
         }
+        return;
     }
 
-    bool ValidateChecksum(string nmeaLine)
+    public void UpdatePos(double latitude, double longitude)
     {
-        // チェックサムの計算
-        int asteriskIndex = nmeaLine.IndexOf('*');
-        if (asteriskIndex < 0 || asteriskIndex + 2 >= nmeaLine.Length)
+        // 無効な緯度・経度をチェック
+        if (latitude == 0 || longitude == 0 || Mathf.Abs((float)(latitude - originLatitude)) > 1 || Mathf.Abs((float)(longitude - originLongitude)) > 1)
         {
-            return false;
+            Debug.LogWarning("Invalid latitude or longitude, skipping position update.");
+            return;
         }
+        // 解析した緯度と経度に基づいてUnityの座標系に変換
+        Vector3 newTargetPosition = ConvertToUnityCoordinates(latitude, longitude);
 
-        string checksumString = nmeaLine.Substring(asteriskIndex + 1, 2);
-        if (!byte.TryParse(checksumString, System.Globalization.NumberStyles.HexNumber, null, out byte expectedChecksum))
-        {
-            return false;
-        }
+        // 距離差を計算
+        float distanceDifference = Vector3.Distance(targetPosition, newTargetPosition);
 
-        byte calculatedChecksum = 0;
-        for (int i = 1; i < asteriskIndex; i++)
-        {
-            calculatedChecksum ^= (byte)nmeaLine[i];
-        }
+        // 距離差に基づいて補間速度を計算（動的なスムーズ値）
+        float dynamicSmoothness = Mathf.Lerp(10f, 0.1f, Mathf.Clamp01(distanceDifference / 100f));
 
-        return calculatedChecksum == expectedChecksum;
-    }
+        // 動的な補間速度で位置を更新
+        targetPosition = Vector3.Lerp(targetPosition, newTargetPosition, Time.deltaTime * dynamicSmoothness);
 
-    void ProcessNMEALine(string line)
-    {
-        // 行が "$GNGGA" で始まるか確認（GGAメッセージかどうか）
-        if (line.StartsWith("$GNGGA"))
-        {
-            string[] data = line.Split(',');
-            if (data[6] != "0") // データが有効かどうか確認（品質フィールドが "0" でない）
-            {
-                // GGAメッセージから緯度、経度を解析
-                double latitude = ParseLatitude(data[2], data[3]);
-                double longitude = ParseLongitude(data[4], data[5]);
-
-                // 解析した緯度と経度に基づいてUnityの座標系に変換
-                targetPosition = ConvertToUnityCoordinates(latitude, longitude);
-
-                // 現在の緯度、経度をUIテキストに更新
-                UpdateLocationUI(latitude, longitude);
-
-                // 位置解の種類をUIテキストに更新
-                if (fixQualityText != null)
-                {
-                    string fixQuality = GetFixQualityDescription(data[6]);
-                    fixQualityText.text = "Fix Quality: " + fixQuality;
-                }
-            }
-        }
+        // 現在の緯度、経度をUIテキストに更新
+        UpdateLocationUI(latitude, longitude);
     }
 
     // 緯度と経度を更新するUIのメソッド
@@ -168,28 +81,6 @@ public class GNSSReceiver : MonoBehaviour
         }
     }
 
-    // NMEAデータから緯度を解析してfloat値に変換
-    double ParseLatitude(string value, string direction)
-    {
-        // 緯度の値から度と分を抽出
-        double degrees = double.Parse(value.Substring(0, 2));
-        double minutes = double.Parse(value.Substring(2)) / 60.0;
-        double latitude = degrees + minutes;
-        // 方向が南の場合は負の値を返す
-        return (direction == "S") ? -latitude : latitude;
-    }
-
-    // NMEAデータから経度を解析してfloat値に変換
-    double ParseLongitude(string value, string direction)
-    {
-        // 経度の値から度と分を抽出
-        double degrees = double.Parse(value.Substring(0, 3));
-        double minutes = double.Parse(value.Substring(3)) / 60.0;
-        double longitude = degrees + minutes;
-        // 方向が西の場合は負の値を返す
-        return (direction == "W") ? -longitude : longitude;
-    }
-
     // 緯度経度をUnityの座標系に変換
     Vector3 ConvertToUnityCoordinates(double latitude, double longitude)
     {
@@ -204,55 +95,45 @@ public class GNSSReceiver : MonoBehaviour
         float x = (float)(deltaLongitude * metersPerDegreeLongitude);
         float z = (float)(deltaLatitude * metersPerDegreeLatitude);
 
-        return new Vector3(x, playerTransform.position.y, z);
-    }
-
-    // 位置解の種類を取得
-    string GetFixQualityDescription(string qualityIndicator)
-    {
-        switch (qualityIndicator)
-        {
-            case "1":
-                return "GPS Fix";
-            case "2":
-                return "DGPS Fix";
-            case "4":
-                return "RTK Fixed";
-            case "5":
-                return "RTK Float";
-            default:
-                return "No Fix";
-        }
+        return new Vector3(x, 1.0f, z);
     }
 
     // カメラの方位角、ピッチ、ロールを更新
     void UpdateCameraOrientation()
     {
-        Debug.Log("AAAAAAAA");
         float pitch = UnityTcpServer.pitch;
         float azimuth = UnityTcpServer.azimuth;
         float roll = UnityTcpServer.roll;
 
         if (cameraTransform != null)
         {
+            Quaternion currentRotation = cameraTransform.rotation;
             Quaternion targetRotation = Quaternion.Euler(pitch, azimuth, roll);
-            cameraTransform.rotation = Quaternion.Lerp(cameraTransform.rotation, targetRotation, smoothness);
+
+            // 角度差を計算
+            float angleDifference = Quaternion.Angle(currentRotation, targetRotation);
+
+            // 角度差に基づいて補間速度を計算（動的なスムーズ値）
+            float dynamicSmoothness = Mathf.Lerp(10f, 0.1f, Mathf.Clamp01(angleDifference / 180f));
+
+            // 動的な補間速度で回転を更新
+            cameraTransform.rotation = Quaternion.Slerp(currentRotation, targetRotation, Time.deltaTime * dynamicSmoothness);
         }
 
         // 方位角、ピッチ、ロールをUIに表示
         if (azimuthText != null)
         {
-            azimuthText.text = "Azimuth: " + azimuth + "°";
+            azimuthText.text = "Azimuth: " + azimuth + "\u00b0";
             azimuthText.ForceMeshUpdate();
         }
         if (pitchText != null)
         {
-            pitchText.text = "Pitch: " + pitch + "°";
+            pitchText.text = "Pitch: " + pitch + "\u00b0";
             pitchText.ForceMeshUpdate();
         }
         if (rollText != null)
         {
-            rollText.text = "Roll: " + roll + "°";
+            rollText.text = "Roll: " + roll + "\u00b0";
             rollText.ForceMeshUpdate();
         }
     }

@@ -1,5 +1,6 @@
 using UnityEngine;
 using TMPro;
+using System.IO;
 
 public class TriggerAreaManager : MonoBehaviour
 {
@@ -9,79 +10,40 @@ public class TriggerAreaManager : MonoBehaviour
     public TextMeshProUGUI messageText; // メッセージ表示用のUI
     public TextMeshProUGUI timerText;  // 時間表示用のUI
     public Transform playerTransform; // プレイヤーのTransform
-    public DebugRouteManager routeManager; // ルートマネージャーへの参照
+    public RouteManager routeManager; // ルートマネージャーへの参照
 
     private bool isTiming = false;
-    private bool hasLeftStartArea = false; // StartAreaを出たかどうかを判定するフラグ
+    private bool hasEnteredStartArea = false; // スタートエリアに一度入ったかを判定するフラグ
+    private bool hasLeftStartArea = false;  // スタートエリアを出たかを判定するフラグ
     private float startTime;
 
     void Start()
     {
-        // 既存のStartAreaを再利用または生成
-        GameObject existingStartArea = GameObject.Find("StartArea");
-        if (existingStartArea != null)
-        {
-            startArea = existingStartArea.transform;
-            startArea.position = Vector3.zero; // 必ず原点に配置
-            Debug.Log($"既存のStartAreaを再利用しました。位置: {startArea.position}");
-        }
-        else
-        {
-            GameObject defaultStartArea = new GameObject("StartArea");
-            defaultStartArea.transform.position = Vector3.zero; // 原点
-            startArea = defaultStartArea.transform;
-            Debug.Log($"新しいStartAreaを生成しました。位置: {startArea.position}");
-        }
-
-        // ゴールエリアの再利用または生成
-        GameObject existingGoalArea = GameObject.Find("GoalArea");
-        if (existingGoalArea != null)
-        {
-            goalArea = existingGoalArea.transform;
-            Vector3 goalPosition = CalculateGoalPosition();
-            goalArea.position = goalPosition;
-            Debug.Log($"既存のGoalAreaを再利用しました。新しい位置: {goalPosition}");
-        }
-        else
-        {
-            GameObject defaultGoalArea = new GameObject("GoalArea");
-            goalArea = defaultGoalArea.transform;
-            Vector3 goalPosition = CalculateGoalPosition();
-            goalArea.position = goalPosition;
-            Debug.Log($"新しいGoalAreaを生成しました。位置: {goalPosition}");
-        }
-
-        Debug.Log("スタートエリアとゴールエリアの設定が完了しました。");
+        // スタートエリアとゴールエリアの設定を確認または生成
+        InitializeAreas();
     }
-
 
     private void Update()
     {
         if (playerTransform == null) return;
 
         Vector3 playerPosition = playerTransform.position;
-
-        Debug.Log($"Player Position: {playerPosition}");
-        Debug.Log($"Goal Position: {goalArea.position}");
+        playerPosition.y = 1.0f; // プレイヤーのY座標を1.0に固定
 
         // スタートエリア判定
-        if (startArea != null && !isTiming && Vector3.Distance(playerPosition, startArea.position) <= triggerRadius)
+        if (startArea != null && !hasEnteredStartArea && Vector3.Distance(playerPosition, startArea.position) <= triggerRadius)
         {
             OnEnterStartArea();
         }
-        else if (isTiming && !hasLeftStartArea && Vector3.Distance(playerPosition, startArea.position) > triggerRadius)
+        else if (hasEnteredStartArea && !hasLeftStartArea && Vector3.Distance(playerPosition, startArea.position) > triggerRadius)
         {
-            // StartAreaを出たタイミング
             OnLeaveStartArea();
-            hasLeftStartArea = true; // フラグを更新
         }
 
         // ゴールエリア判定 (3次元距離を考慮)
         if (goalArea != null && isTiming)
         {
             float distance = Vector3.Distance(playerPosition, goalArea.position);
-            Debug.Log($"Distance to Goal: {distance}, Trigger Radius: {triggerRadius}");
-
             if (distance <= triggerRadius)
             {
                 OnEnterGoalArea();
@@ -98,17 +60,18 @@ public class TriggerAreaManager : MonoBehaviour
 
     private void OnEnterStartArea()
     {
-        isTiming = true;
-        messageText.text = "Start!";
+        hasEnteredStartArea = true;
+        messageText.text = "You have entered the Start Area!";
         Debug.Log("スタートエリアに入りました！");
     }
 
     private void OnLeaveStartArea()
     {
-        // スタートエリアを出たタイミングでの処理
+        hasLeftStartArea = true;
+        isTiming = true;
         startTime = Time.time;
-        messageText.text = "Walking...";
-        Debug.Log("スタートエリアを出ました！");
+        messageText.text = "Timing Started!";
+        Debug.Log("スタートエリアを出ました！タイム計測を開始します。");
     }
 
     private void OnEnterGoalArea()
@@ -121,9 +84,54 @@ public class TriggerAreaManager : MonoBehaviour
         timerText.text = $"Time: {totalTime:F2} s";
         Debug.Log($"ゴールエリアに到達！所要時間: {totalTime:F2} 秒");
 
-        // デバッグログで判定の確認
-        Debug.Log($"Final Player Position: {playerTransform.position}");
-        Debug.Log($"Final Goal Position: {goalArea.position}");
+        SaveTimeToFile(totalTime);
+    }
+
+    private void SaveTimeToFile(float totalTime)
+    {
+        string filePath = Path.Combine(Application.persistentDataPath, "timelog.csv");
+        string logEntry = $"{System.DateTime.Now}, {totalTime:F2}\n";
+
+        try
+        {
+            File.AppendAllText(filePath, logEntry);
+            Debug.Log($"タイムをファイルに保存しました: {filePath}");
+        }
+        catch (System.Exception ex)
+        {
+            Debug.LogError($"タイムの保存に失敗しました: {ex.Message}");
+        }
+    }
+
+    private void InitializeAreas()
+    {
+        // スタートエリアの設定
+        GameObject existingStartArea = GameObject.Find("StartArea");
+        if (existingStartArea != null)
+        {
+            startArea = existingStartArea.transform;
+            startArea.position = Vector3.zero;
+        }
+        else
+        {
+            GameObject defaultStartArea = new GameObject("StartArea");
+            startArea = defaultStartArea.transform;
+            startArea.position = Vector3.zero;
+        }
+
+        // ゴールエリアの設定
+        GameObject existingGoalArea = GameObject.Find("GoalArea");
+        if (existingGoalArea != null)
+        {
+            goalArea = existingGoalArea.transform;
+            goalArea.position = CalculateGoalPosition();
+        }
+        else
+        {
+            GameObject defaultGoalArea = new GameObject("GoalArea");
+            goalArea = defaultGoalArea.transform;
+            goalArea.position = CalculateGoalPosition();
+        }
     }
 
     private Vector3 CalculateGoalPosition()
@@ -142,7 +150,6 @@ public class TriggerAreaManager : MonoBehaviour
         }
 
         Coordinate lastCheckpoint = currentRoute.coordinates[currentRoute.coordinates.Count - 1];
-
         Vector3 goalPosition = routeManager.ConvertGeographicToUnity(
             lastCheckpoint.Latitude,
             lastCheckpoint.Longitude,
@@ -150,19 +157,17 @@ public class TriggerAreaManager : MonoBehaviour
             routeManager.originLongitude
         );
 
-        return new Vector3(goalPosition.x, 0f, goalPosition.z); // Y軸を地面に固定
+        return new Vector3(goalPosition.x, 0f, goalPosition.z);
     }
 
     private void OnDrawGizmos()
     {
-        // スタートエリアの可視化
         if (startArea != null)
         {
             Gizmos.color = Color.green;
             Gizmos.DrawWireSphere(startArea.position, triggerRadius);
         }
 
-        // ゴールエリアの可視化
         if (goalArea != null)
         {
             Gizmos.color = Color.red;
