@@ -1,5 +1,7 @@
 using UnityEngine;
 using TMPro;
+using System.Drawing.Text;
+using System.Runtime.CompilerServices;
 
 public class GNSSReceiver : MonoBehaviour
 {
@@ -20,6 +22,11 @@ public class GNSSReceiver : MonoBehaviour
     // 原点（基準点）の緯度経度
     private readonly double originLatitude = 35.665573533488;
     private readonly double originLongitude = 140.071299281814;
+
+    public LineRenderer navigationLine; // ナビゲーションラインの参照
+    public float correctionThreshold = 1.5f; // 補正をかけるしきい値（メートル）
+    public float correctionSpeed = 5.0f; // 補正の速度
+    public float lineThickness = 0.75f; // ラインの太さ（半径として扱う）
     
     void Start()
     {
@@ -32,13 +39,24 @@ public class GNSSReceiver : MonoBehaviour
     {
         UpdateCameraOrientation();
         UpdatePos(UnityTcpServer.latitude, UnityTcpServer.longitude);
+
+        // プレイヤーの位置をLine上に補正
+        if (navigationLine != null)
+        {
+            CorrectPlayerPositionOnLine();
+        }
+
+        // Line補正処理を実行
+        if (navigationLine != null)
+        {
+            SnapPlayerToLineCenter();
+        }
         
         if (playerTransform != null)
         {
             playerTransform.position = Vector3.Lerp(playerTransform.position, targetPosition, smoothness);
             // Debug.Log("Update vector:" + playerTransform.position + targetPosition);
         }
-        return;
     }
 
     public void UpdatePos(double latitude, double longitude)
@@ -80,6 +98,63 @@ public class GNSSReceiver : MonoBehaviour
             longitudeText.ForceMeshUpdate(); // テキストの即時更新を強制
         }
     }
+
+    void CorrectPlayerPositionOnLine()
+    {
+        if (navigationLine == null || playerTransform == null)
+        {
+            return;
+        }
+
+        // プレイヤーの現在位置
+        Vector3 playerPosition = playerTransform.position;
+
+        // Line上の最も近いポイントを計算
+        Vector3 closestPoint = GetClosestPointOnLine(navigationLine, playerPosition);
+
+        // プレイヤーと最も近いポイントの距離を計算
+        float distanceToLine = Vector3.Distance(playerPosition, closestPoint);
+
+        // 距離がしきい値以下の場合に補正をかける
+        if (distanceToLine <= correctionThreshold)
+        {
+            // プレイヤーを補正
+            playerTransform.position = Vector3.Lerp(playerPosition, closestPoint, Time.deltaTime * correctionSpeed);
+        }
+    }
+
+    private void SnapPlayerToLineCenter()
+    {
+        if (navigationLine == null || playerTransform == null)
+        {
+            return;
+        }
+
+        // プレイヤーの現在位置
+        Vector3 playerPosition = playerTransform.position;
+
+        // Line上の最も近いポイントを計算
+        Vector3 closestPoint = GetClosestPointOnLine(navigationLine, playerPosition);
+
+        // プレイヤーと最も近いポイントの距離を計算
+        float distanceToLine = Vector3.Distance(playerPosition, closestPoint);
+
+        // 距離がしきい値以下の場合に補正を適用
+        if (distanceToLine <= correctionThreshold)
+        {
+            // プレイヤーをラインの中心に補正
+            Vector3 directionToCenter = (closestPoint - playerPosition).normalized;
+            float offset = Mathf.Clamp(lineThickness - distanceToLine, 0, lineThickness);
+
+            // プレイヤーの最終位置を計算
+            Vector3 correctedPosition = closestPoint + directionToCenter * offset;
+
+            // プレイヤーを補正位置に移動
+            playerTransform.position = correctedPosition;
+        }
+    }
+
+    
 
     // 緯度経度をUnityの座標系に変換
     Vector3 ConvertToUnityCoordinates(double latitude, double longitude)
@@ -136,5 +211,45 @@ public class GNSSReceiver : MonoBehaviour
             rollText.text = "Roll: " + roll + "\u00b0";
             rollText.ForceMeshUpdate();
         }
+    }
+    private Vector3 GetClosestPointOnLine(LineRenderer lineRenderer, Vector3 position)
+    {
+        Vector3 closestPoint = Vector3.zero;
+        float minDistance = float.MaxValue;
+
+        // LineRendererの全てのセグメントを確認
+        for (int i = 0; i < lineRenderer.positionCount - 1; i++)
+        {
+            Vector3 start = lineRenderer.GetPosition(i);
+            Vector3 end = lineRenderer.GetPosition(i + 1);
+
+            // 現在のセグメント上の最も近いポイントを計算
+            Vector3 pointOnSegment = GetClosestPointOnSegment(start, end, position);
+            float distance = Vector3.Distance(position, pointOnSegment);
+
+            // 最も近いポイントを更新
+            if (distance < minDistance)
+            {
+                minDistance = distance;
+                closestPoint = pointOnSegment;
+            }
+        }
+
+        return closestPoint;
+    }
+
+    private Vector3 GetClosestPointOnSegment(Vector3 start, Vector3 end, Vector3 point)
+    {
+        Vector3 segment = end - start;
+        Vector3 toPoint = point - start;
+
+        float projection = Vector3.Dot(toPoint, segment.normalized);
+        float segmentLength = segment.magnitude;
+
+        // セグメントの範囲内に収める
+        float clampedProjection = Mathf.Clamp(projection, 0, segmentLength);
+
+        // セグメント上の最も近いポイントを計算
+        return start + segment.normalized * clampedProjection;
     }
 }
