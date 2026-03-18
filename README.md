@@ -42,6 +42,7 @@ Android端末で取得した緯度・経度・方位情報をPC上のUnityに送
 **使用スクリプト：`Assets/Scripts/Managers/RouteManager`**
 
 -（なぜかこのスクリプトのみGitHubに上げられていない）
+-内容は`Assets/DebugScripts/DebugManagers/DebugRouteManager`と類似しているため、そちらを参照
 
 - 緯度経度で作成されたルートをUnity座標に変換する
 - ルートに沿って、**矢印 / ゲート / ライン** を配置する
