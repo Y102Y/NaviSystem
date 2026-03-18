@@ -39,11 +39,14 @@ Android端末で取得した緯度・経度・方位情報をPC上のUnityに送
 - 処理結果を `DebugLogger` に記録する
 
 ### 4. RouteManagerオブジェクト
-**使用スクリプト：`RouteManager`**
+**使用スクリプト：`Assets/Scripts/Managers/RouteManager`**
+
+-（なぜかこのスクリプトのみGitHubに上げられていない）
 
 - 緯度経度で作成されたルートをUnity座標に変換する
 - ルートに沿って、**矢印 / ゲート / ライン** を配置する
 - ユーザーの現在位置に応じて、次に案内するチェックポイントを更新する
+- `Assets/Scripts/Data/RouteData.cs`で作成したチェックポイント表を参照
 
 ### 5. ObjectManagerオブジェクト
 **使用スクリプト：`Assets/DebugScripts/DebugMAnagers/DebugObjectManager`**  
@@ -53,7 +56,7 @@ Android端末で取得した緯度・経度・方位情報をPC上のUnityに送
 - オブジェクトの削除や個数確認をしやすくする
 
 ### 6. Loggerオブジェクト
-**使用スクリプト：`DebugLogger`**  
+**使用スクリプト：`Assets/DebugScripts/DebugManagers/DebugLogger`**  
 ※ デバッグ時に使用していたものを流用
 
 - ログ出力をまとめて管理する
@@ -70,7 +73,7 @@ Android端末で取得した緯度・経度・方位情報をPC上のUnityに送
 - ARグラスの特性である **「黒色は透過される」** ことを利用し、Arrow / Gate / Line オブジェクトの表示範囲を制限する
 
 ### 10. ESCオブジェクト
-**使用スクリプト：`EscapeQuit`**
+**使用スクリプト：`Assets/Scripts/Managers/EscapeQuit`**
 
 - `ESC`キーでアプリケーションを終了する
 
