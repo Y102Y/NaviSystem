@@ -17,21 +17,21 @@ Android端末で取得した緯度・経度・方位情報をPC上のUnityに送
 ## 本実験で使用しているオブジェクトとスクリプト
 
 ### 1. Playerオブジェクト
-**使用スクリプト：`GNSSReceiver`**
+**使用スクリプト：`Assets/Scripts/Managers/GNSSReceiver`**
 
 - 緯度・経度をUnity座標に変換し、プレイヤーの位置を更新する
 - 方位角・ピッチ・ロールをもとに、カメラの向きを更新する
 - 現在の緯度・経度・方位角などを画面上のUIに表示する
 
 ### 2. TCPServerオブジェクト
-**使用スクリプト：`UnityTcpServer`**
+**使用スクリプト：`Assets/Scripts/Managers/UnityTcpServer`**
 
 - Unity内でTCPサーバーを起動する
 - 外部端末から送信されるデータを受信する
 - 方位角（azimuth）、pitch、roll、緯度、経度を受信し、Unity内で利用可能な形で保持する
 
 ### 3. MainManagerオブジェクト
-**使用スクリプト：`DebugMainManager`**  
+**使用スクリプト：`Assets/DebugScripts/DebugManagers/DebugMainManager`**  
 ※ デバッグ時に使用していたものを流用
 
 - デバッグシーン開始時に初期化処理を行う
@@ -46,7 +46,7 @@ Android端末で取得した緯度・経度・方位情報をPC上のUnityに送
 - ユーザーの現在位置に応じて、次に案内するチェックポイントを更新する
 
 ### 5. ObjectManagerオブジェクト
-**使用スクリプト：`DebugObjectManager`**  
+**使用スクリプト：`Assets/DebugScripts/DebugMAnagers/DebugObjectManager`**  
 ※ デバッグ時に使用していたものを流用
 
 - 生成したチェックポイント・ゲート・ラインを一元管理する
