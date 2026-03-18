@@ -14,9 +14,11 @@ public class UnityTcpServer : MonoBehaviour
     private bool isRunning = false;
     private Thread serverThread;
 
-    public static float pitch;
-    public static float roll;
-    public static float azimuth;
+    public static float pitch = 0.0f;
+    public static float roll = 0.0f;
+    public static float azimuth = 0.0f;
+    public static double latitude = 0.0f;
+    public static double longitude = 0.0f;
 
     // 受信データ用
     private StringBuilder buffer = new StringBuilder();
@@ -113,7 +115,7 @@ public class UnityTcpServer : MonoBehaviour
                     while (isRunning && (bytesRead = stream.Read(dataBuffer, 0, dataBuffer.Length)) != 0)
                     {
                         string receivedData = Encoding.UTF8.GetString(dataBuffer, 0, bytesRead);
-                        Debug.Log($"受信データ: {receivedData}");
+                        // Debug.Log($"受信データ: {receivedData}");
                         ProcessData(receivedData);
                     }
                 }
@@ -141,15 +143,21 @@ public class UnityTcpServer : MonoBehaviour
             if (!string.IsNullOrEmpty(line))
             {
                 string[] parts = line.Split(',');
-                if (parts.Length == 3)
+                if (parts.Length == 5)
                 {
                     if (float.TryParse(parts[0], out float azimuth) &&
                         float.TryParse(parts[1], out float pitch) &&
-                        float.TryParse(parts[2], out float roll))
+                        float.TryParse(parts[2], out float roll) &&
+                        double.TryParse(parts[3], out double latitude) &&
+                        double.TryParse(parts[4], out double longitude))
                     {
+                        // Debug.Log("L: " + parts[3] + " LO: " + parts[4]);
+                        Debug.Log("2L: " + latitude + " 2LO: " + longitude);
                         UnityTcpServer.azimuth = azimuth;
                         UnityTcpServer.pitch = pitch;
                         UnityTcpServer.roll = roll;
+                        UnityTcpServer.latitude = latitude;
+                        UnityTcpServer.longitude = longitude;
                         // 必要に応じてイベントを発火
                         OnDataReceived?.Invoke(azimuth, pitch, roll);
                     }
